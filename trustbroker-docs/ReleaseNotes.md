@@ -1,6 +1,6 @@
 # Unreleased Versions
 
-# 1.15.0 (2026-08)
+## 1.15.0 (2026-08)
 
 ### Improvements
 - SAML:
@@ -11,7 +11,9 @@
 - Config:
   - Improved profile merging for attributes with defaults.
 
-# 1.14.0.20260513T061155Z
+# Released Versions
+
+## 1.14.0.20260513T061155Z
 
 ### Dependency upgrades
 
@@ -93,8 +95,6 @@
 ### Bugfixes
 - UI:
   - Fixed injection issue.
-
-# Released Versions
 
 ## 1.13.0.20260306T105516Z
 
