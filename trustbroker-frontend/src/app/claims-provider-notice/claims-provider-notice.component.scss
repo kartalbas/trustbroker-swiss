@@ -1,0 +1,77 @@
+/*
+ * Copyright (C) 2026 trustbroker.swiss team BIT
+ *
+ * This program is free software.
+ * You can redistribute it and/or modify it under the terms of the GNU Affero General Public License
+ * as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU Affero General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
+@use "src/styles/variables";
+@use "@oblique/oblique/styles/scss/core/palette";
+@use "@oblique/oblique/styles/scss/core/mixins/layout";
+@use "@oblique/oblique/styles/scss/core/mixins/shadow";
+
+:host {
+	display: flex;
+	justify-content: center;
+	--button-columns: 1;
+	--padding: 0;
+	--margin-top: 0;
+
+	&:focus-visible {
+		box-shadow: none !important;
+	}
+
+	.content {
+		width: 100%;
+		max-width: calc(512px + 2 * var(--padding));
+		padding: var(--padding);
+		margin-top: var(--margin-top);
+
+		display: flex;
+		flex-direction: column;
+		gap: 24px;
+
+		.idp-section {
+			padding: 1rem;
+			background-color: palette.$ob-secondary-50;
+
+			.buttons {
+				display: grid;
+				grid-template-columns: repeat(var(--button-columns), 1fr);
+				justify-content: space-between;
+				align-items: center;
+				gap: 1rem;
+
+				img {
+					width: 140px;
+				}
+			}
+
+			&.primary {
+				background-color: palette.$ob-blue-100;
+			}
+		}
+
+		// for the last paragraph in a container, we don't need the margin because of the flex gap
+		p:last-child {
+			margin-bottom: 0;
+		}
+	}
+
+	@include layout.ob-media-breakpoint-up(sm) {
+		--button-columns: 2;
+		--margin-top: 32px;
+		--padding: 24px;
+
+		.content {
+			@include shadow.ob-shadow-default();
+		}
+	}
+}

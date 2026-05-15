@@ -12,39 +12,19 @@
  * You should have received a copy of the GNU Affero General Public License along with this program.
  * If not, see <https://www.gnu.org/licenses/>.
  */
+import { Pipe, PipeTransform, inject } from '@angular/core';
+import { SafeMarkupPipe } from './safe-markup.pipe';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
-#greyCard {
-	color: white;
-	height: 100%;
-	opacity: 80%;
-	background-color: #454545;
-	position: absolute;
-	width: 100%;
-	border-radius: 4px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: default;
-	/* Will not work on some old browsers */
-	backdrop-filter: blur(5px);
-	-webkit-backdrop-filter: blur(5px);
-}
+@Pipe({
+	name: 'safeMarkup',
+	standalone: true
+})
+export class SafeMarkupStandalonePipe implements PipeTransform {
+	private readonly sanitizer = inject(DomSanitizer);
+	private readonly safeMarkupPipe = new SafeMarkupPipe(this.sanitizer);
 
-#greyCardTitle {
-	color: rgba(255, 255, 255, 1);
-	font-size: 18px;
-	font-weight: 700;
-	font-style: normal;
-	letter-spacing: 0.2px;
-	text-align: center;
-}
-
-#greyCardSubtitle {
-	color: rgba(255, 255, 255, 0.87);
-	font-size: 14px;
-	font-weight: 400;
-	font-style: normal;
-	letter-spacing: 0.25px;
-	text-align: center;
-	line-height: 20px;
+	transform(text: string | null): SafeHtml {
+		return this.safeMarkupPipe.transform(text);
+	}
 }

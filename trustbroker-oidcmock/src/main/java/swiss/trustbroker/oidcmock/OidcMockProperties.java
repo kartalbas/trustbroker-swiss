@@ -15,6 +15,7 @@
 
 package swiss.trustbroker.oidcmock;
 
+import java.util.List;
 import java.util.Map;
 
 import com.nimbusds.jose.EncryptionMethod;
@@ -31,6 +32,12 @@ import org.springframework.context.annotation.Configuration;
 @Data
 public class OidcMockProperties {
 
+	private boolean generateJwkFromFile = false;
+
+	private String jwkFilePath;
+
+	private String jwkKeyFilePassword;
+
 	private boolean encryptIdToken = false;
 
 	private boolean signEncIdToken = true;
@@ -39,5 +46,5 @@ public class OidcMockProperties {
 
 	private String encryptionMethod = EncryptionMethod.A256GCM.getName();
 
-	private Map<String, Map<String, String>> clients;
+	private Map<String, Map<String, List<String>>> clients;
 }

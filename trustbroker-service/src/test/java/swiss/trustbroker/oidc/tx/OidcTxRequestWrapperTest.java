@@ -24,7 +24,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.mock.web.MockHttpServletRequest;
-import swiss.trustbroker.common.exception.TechnicalException;
+import swiss.trustbroker.common.exception.RequestDeniedException;
+import swiss.trustbroker.common.exception.TrustBrokerException;
 
 class OidcTxRequestWrapperTest {
 
@@ -40,10 +41,11 @@ class OidcTxRequestWrapperTest {
 
 	@ParameterizedTest
 	@MethodSource
-	void getServletPath(String path, String mapped) {
+	@SuppressWarnings("unchecked")
+	void getServletPath(String path, Object mapped) {
 		request.setServletPath(path);
-		if (TechnicalException.class.getSimpleName().equals(mapped)) {
-			var ex = assertThrows(TechnicalException.class, () -> {
+		if (mapped instanceof Class<?> clazz) {
+			var ex = assertThrows((Class<TrustBrokerException>) clazz, () -> {
 				mapper.getServletPath();
 			});
 			assertThat(ex.getInternalMessage(), containsString("Invalid access to"));
@@ -53,21 +55,21 @@ class OidcTxRequestWrapperTest {
 		}
 	}
 
-	static String[][] getServletPath() {
-		return new String[][] {
+	static Object[][] getServletPath() {
+		return new Object[][] {
 				// not mapped
 				{ null, null },
 				{ "/", "/" },
 				{ "/other/auth", "/other/auth" },
-				{ "/realms/any", TechnicalException.class.getSimpleName() },
+				{ "/realms/any", RequestDeniedException.class },
 				{ "/any/realms", "/any/realms" },
 				{ "/realms/any/token", "/oauth2/token" },
-				{ "/realms/any/protocol/openid-connect/invalid", TechnicalException.class.getSimpleName() },
+				{ "/realms/any/protocol/openid-connect/invalid", RequestDeniedException.class },
 				{ "/.well-known/openid-configuration", "/.well-known/openid-configuration" },
 				{ "/api/v1/openid-configuration", "/.well-known/openid-configuration" },
-				{ "/oauth2/auth", TechnicalException.class.getSimpleName() },
+				{ "/oauth2/auth", RequestDeniedException.class },
 				{ "/oauth2/authorize", "/oauth2/authorize" },
-				{ "/oauth2/tokenX", TechnicalException.class.getSimpleName() },
+				{ "/oauth2/tokenX", RequestDeniedException.class },
 				{ "/oauth2/token", "/oauth2/token" },
 				// mapped
 				{ "/realms/any/protocol/openid-connect/token", "/oauth2/token" },
@@ -76,7 +78,7 @@ class OidcTxRequestWrapperTest {
 				{ "/realms/any/protocol/openid-connect/certs", "/oauth2/jwks" },
 				{ "/realms/any/protocol/openid-connect/revoke", "/oauth2/revoke" },
 				{ "/realms/any/protocol/openid-connect/logout", "/logout" },
-				{ "/realms/any/.well-known", TechnicalException.class.getSimpleName() },
+				{ "/realms/any/.well-known", RequestDeniedException.class },
 				{ "/realms/any/.well-known/openid-configuration", "/.well-known/openid-configuration" }
 		};
 	}

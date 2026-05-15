@@ -33,7 +33,9 @@ import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.tracing.Traced;
 import swiss.trustbroker.common.util.HttpUtil;
 import swiss.trustbroker.common.util.OidcUtil;
+import swiss.trustbroker.common.util.WebUtil;
 import swiss.trustbroker.federation.xmlconfig.Certificates;
+import swiss.trustbroker.federation.xmlconfig.OidcClaimsSource;
 import swiss.trustbroker.federation.xmlconfig.OidcClient;
 import swiss.trustbroker.oidc.OidcHttpClientProvider;
 import swiss.trustbroker.oidc.client.dto.OpenIdProviderConfiguration;
@@ -54,34 +56,41 @@ class OidcUserinfoService {
 	@Timed("oidc_userinfo_fetch")
 	public JWTClaimsSet fetchUserInfo(OidcClient client, Certificates certificates,
 			OpenIdProviderConfiguration configuration, String accessToken, Function<String, Optional<JWK>> keySupplier) {
-		var authorization = OidcUtil.getBearerAuthorizationHeader(accessToken);
+		var authorization = WebUtil.getBearerAuthorizationHeader(accessToken);
 		Map<String, String> headers = new HashMap<>();
 		headers.put(HttpHeaders.AUTHORIZATION, authorization);
 		var userinfoEndpoint = configuration.getUserinfoEndpoint();
 		log.debug("HTTP GET to userinfoEndpoint={}", userinfoEndpoint);
-		var httpClient = httpClientProvider.createHttpClient(client, certificates, userinfoEndpoint);
-		var response = HttpUtil.getHttpStringResponse(httpClient, userinfoEndpoint, headers);
-		if (response.isEmpty()) {
-			throw new TechnicalException(String.format("oidcClientId=%s failed GET to userinfoEndpoint=%s",
-					client.getId(), userinfoEndpoint));
+		try (var httpClient = httpClientProvider.createHttpClient(client, certificates, userinfoEndpoint)) {
+			var response = HttpUtil.getHttpStringResponse(httpClient, userinfoEndpoint, headers);
+			if (response.isEmpty()) {
+				throw new TechnicalException(String.format("oidcClientId=%s failed GET to userinfoEndpoint=%s",
+						client.getId(), userinfoEndpoint));
+			}
+			var httpResponse = response.get();
+			var contentType = httpResponse.headers().firstValue(HttpHeaders.CONTENT_TYPE);
+			log.info("HTTP GET to userinfoEndpoint={} returned contentType={}",
+					userinfoEndpoint, contentType.orElse(null));
+			if (contentType.isEmpty()) {
+				throw new TechnicalException(String.format("oidcClientId=%s GET to userinfoEndpoint=%s returned no %s header",
+						client.getId(), userinfoEndpoint, HttpHeaders.CONTENT_TYPE));
+			}
+			var mimeType = MimeType.valueOf(contentType.get());
+			if (mimeType.equalsTypeAndSubtype(MediaType.APPLICATION_JSON)) {
+				if (!client.useClaimsFromSource(OidcClaimsSource.USERINFO)) {
+					throw new TechnicalException(String.format(
+							"oidcClientId=%s GET to userinfoEndpoint=%s returned contentType=%s - this requires claimsSource=%s",
+							client.getId(), userinfoEndpoint, contentType.get(), OidcClaimsSource.USERINFO));
+				}
+				return OidcUtil.parseJwtClaims(httpResponse.body());
+			}
+			if (mimeType.equalsTypeAndSubtype(OidcUtil.MIME_TYPE_JWT)) {
+				return OidcUtil.verifyJwtToken(httpResponse.body(), keySupplier, client.getId());
+			}
+			throw new TechnicalException(String.format(
+					"oidcClientId=%s GET to userinfoEndpoint=%s returned unsupported contentType=%s",
+					client.getId(), userinfoEndpoint, contentType.get()));
 		}
-		var httpResponse = response.get();
-		var contentType = httpResponse.headers().firstValue(HttpHeaders.CONTENT_TYPE);
-		log.info("HTTP GET to userinfoEndpoint={} returned {}={}",
-				userinfoEndpoint, HttpHeaders.CONTENT_TYPE, contentType.orElse(null));
-		if (!contentType.isPresent()) {
-			throw new TechnicalException(String.format("oidcClientId=%s GET to userinfoEndpoint=%s returned no %s header",
-					client.getId(), userinfoEndpoint, HttpHeaders.CONTENT_TYPE));
-		}
-		var mimeType = MimeType.valueOf(contentType.get());
-		if (mimeType.equalsTypeAndSubtype(MediaType.APPLICATION_JSON)) {
-			return OidcUtil.parseJwtClaims(httpResponse.body());
-		}
-		if (mimeType.equalsTypeAndSubtype(OidcUtil.MIME_TYPE_JWT)) {
-			return OidcUtil.verifyJwtToken(httpResponse.body(), keySupplier::apply, client.getId());
-		}
-		throw new TechnicalException(String.format("oidcClientId=%s GET to userinfoEndpoint=%s returned unsupported %s=%s ",
-				client.getId(), userinfoEndpoint, HttpHeaders.CONTENT_TYPE, contentType.get()));
 	}
 
 }

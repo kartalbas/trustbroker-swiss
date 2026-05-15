@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Service;
 import swiss.trustbroker.api.profileselection.dto.Profile;
 import swiss.trustbroker.api.profileselection.dto.ProfileResponse;
 import swiss.trustbroker.api.profileselection.dto.ProfileSelectionData;
+import swiss.trustbroker.api.profileselection.dto.ProfileSelectionProperties;
 import swiss.trustbroker.api.profileselection.dto.ProfileSelectionResult;
 import swiss.trustbroker.api.profileselection.service.ProfileSelectionService;
 import swiss.trustbroker.api.relyingparty.dto.RelyingPartyConfig;
@@ -36,6 +38,7 @@ import swiss.trustbroker.api.sessioncache.dto.CpResponseData;
 import swiss.trustbroker.api.sessioncache.dto.SessionState;
 import swiss.trustbroker.common.config.ExternalStores;
 import swiss.trustbroker.common.exception.TechnicalException;
+import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.federation.xmlconfig.ProfileSelectionMode;
 import swiss.trustbroker.homerealmdiscovery.util.DefinitionUtil;
 import swiss.trustbroker.saml.dto.ClaimSource;
@@ -52,69 +55,72 @@ import swiss.trustbroker.util.ApiSupport;
 @Slf4j
 public class LdapIdentitySelectionService implements ProfileSelectionService {
 
-	private static final String DEFAULT_PROFILE_SEPARATOR = "\\";
+	public static final String PROFILE_SEPARATOR = ":";
 
 	private ApiSupport apiSupport;
 
+	private TrustBrokerProperties trustBrokerProperties;
+
 	@Override
 	public ProfileSelectionResult doInitialProfileSelection(ProfileSelectionData profileSelectionData,
-			RelyingPartyConfig relyingPartyConfig, CpResponseData cpResponseData, SessionState sessionState) {
+															RelyingPartyConfig relyingPartyConfig, CpResponseData cpResponseData, SessionState sessionState) {
 		var profileSelection = profileSelectionData.getProfileSelectionProperties();
 		if (ProfileSelectionService.isProfileSelectionDisabled(profileSelection)) {
 			return ProfileSelectionResult.empty();
 		}
 
-		var profileCount = getUserProfileCount(cpResponseData.getUserDetailMap(), profileSelection.getProfileSelector());
+		String profileSelector = profileSelection.getProfileSelector();
+		var hasMultiProfile = hasMultiProfile(cpResponseData, profileSelector, profileSelection);
 		var profileMode = ProfileSelectionMode.INTERACTIVE; // default
-		if (profileCount > 1) {
+		if (hasMultiProfile) {
 			if (ProfileSelectionMode.SILENT.name().equals(profileSelection.getProfileSelectionMode())) {
 				log.warn("Multiple profiles detected for LDAPIdentitySelection, but SILENT mode not supported. Profile selection will be disabled.");
 				return ProfileSelectionResult.empty();
 			}
 			// INTERACTIVE case only via UI using redirect approach
 			log.info("Doing initial multi-profiles for LDAP rpIssuer={} oidcClientId={} subjectNameId={} "
-							+ "having profileCount={} profileMode={}",
-					relyingPartyConfig.getId(), profileSelectionData.getOidcClientId(), cpResponseData.getNameId(), profileCount,
-					profileMode);
-			return ProfileSelectionResult.builder().redirectUrl(
-					apiSupport.getProfileSelectionUrl(profileSelectionData.getExchangeId())).build();
+							+ "having multiple profiles profileMode={}",
+					relyingPartyConfig.getId(), profileSelectionData.getOidcClientId(), cpResponseData.getNameId(), profileMode);
+			return ProfileSelectionResult.builder()
+										 .redirectUrl(apiSupport.getProfileSelectionUrl(profileSelectionData.getExchangeId()))
+										 .build();
 		}
 
 		// no profile handling required because user does not have multiple ones or the user has selected one
 		final var result = ProfileSelectionResult.builder().build();
 		result.setFilteredAttributes(cpResponseData.getUserDetailMap());
 
-		log.info("Done initial single-profile for cpIssuer={} rpIssuer={} subjectNameId={} having"
-						+ " profileCount={} profileMode={}",
+		log.info("Done initial single-profile for cpIssuer={} rpIssuer={} subjectNameId={} having multiple profiles profileMode={}",
 				cpResponseData.getIssuerId(), relyingPartyConfig.getId(), cpResponseData.getNameId(),
-				profileCount, profileMode);
+				profileMode);
 
 		return result;
 	}
 
 	@Override
 	public ProfileSelectionResult doFinalProfileSelection(ProfileSelectionData profileSelectionData,
-			RelyingPartyConfig relyingPartyConfig, CpResponseData cpResponseData, SessionState sessionState) {
+														  RelyingPartyConfig relyingPartyConfig, CpResponseData cpResponseData, SessionState sessionState) {
 		var profileSelection = profileSelectionData.getProfileSelectionProperties();
 		if (ProfileSelectionService.isProfileSelectionDisabled(profileSelection)) {
 			return ProfileSelectionResult.empty();
 		}
 
 		var profileSelector = profileSelection.getProfileSelector();
-		var profileCountBefore = getUserProfileCount(cpResponseData.getUserDetailMap(), profileSelector);
+		int userProfileCount = getUserProfileCount(cpResponseData.getUserDetailMap(), profileSelector);
+		var hasMultiProfile = hasMultiProfile(cpResponseData, profileSelector, profileSelection);
 		var selectedProfileId = getSelectedProfileId(profileSelectionData);
-
 		if (selectedProfileId == null) {
 			var profileSelectionResult = ProfileSelectionResult.empty();
-			if (profileCountBefore != 1) {
-				log.debug("Missing selectedProfileId for sessionId={} profileCountBefore={}", sessionState.getId(), profileCountBefore);
+			// Multiple profile but no selection or user without a profile
+			if (hasMultiProfile || userProfileCount == 0) {
+				log.debug("Missing selectedProfileId for sessionId={} hasMultiProfile={}", sessionState.getId(), hasMultiProfile);
 				return profileSelectionResult;
 			}
 		}
 
 		final var unselectedProfileIds = getUnselectedProfileId(profileSelectionData, cpResponseData, selectedProfileId);
 		var result = discardUnselectedProfileAttributeValues(cpResponseData, unselectedProfileIds);
-		applyProfileTransformations(selectedProfileId, result);
+		applyProfileTransformations(selectedProfileId, result, profileSelector, profileSelection.getOrganizationSelector());
 
 		if (profileSelectionData.isEnforceSingleProfile()) {
 			var profileCountAfter = getUserProfileCount(result, profileSelector);
@@ -127,14 +133,30 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 
 		if (log.isInfoEnabled()) {
 			log.info("Done final multi-profiles for cpIssuer={} rpIssuer={} subjectNameId={} "
-							+ "having profileCount={} selectedProfileId={} profileMode={}",
+							+ "having hasMultiProfile={} selectedProfileId={} profileMode={}",
 					cpResponseData.getIssuerId(), relyingPartyConfig.getId(), cpResponseData.getNameId(),
-					profileCountBefore, selectedProfileId, profileSelection.getProfileSelectionMode());
+					hasMultiProfile, selectedProfileId, profileSelection.getProfileSelectionMode());
 		}
 		return ProfileSelectionResult.builder()
 									 .selectedProfileId(selectedProfileId)
 									 .filteredAttributes(result)
 									 .build();
+	}
+
+	private static boolean hasMultiProfile(CpResponseData cpResponseData, String profileSelector, ProfileSelectionProperties profileSelection) {
+		var userProfileCount = getUserProfileCount(cpResponseData.getUserDetailMap(), profileSelector);
+		if (userProfileCount < 2) {
+			return false;
+		}
+		// Only check for existing users
+		if (profileSelection.getOrganizationSelector() != null) {
+			var organizationSelector = profileSelection.getOrganizationSelector();
+			var orgCount = getUserProfileCount(cpResponseData.getUserDetailMap(), organizationSelector);
+			if (orgCount == 0) {
+				throw new TechnicalException(String.format("Organization was not found but required: organizationSelector=%s profileSelector=%s", organizationSelector, profileSelector));
+			}
+		}
+		return true;
 	}
 
 	@Override
@@ -146,12 +168,13 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 			return ProfileSelectionResult.empty();
 		}
 
-		var profileCount = getUserProfileCount(cpResponseData.getUserDetailMap(), profileSelection.getProfileSelector());
+		var profileSelector = profileSelection.getProfileSelector();
+		var hasMultiProfile = hasMultiProfile(cpResponseData, profileSelector, profileSelection);
 		var selectedProfileId = getSelectedProfileId(profileSelectionData);
 
 		var result = ProfileSelectionResult.builder().build();
 		// select again on refreshed data
-		if (profileCount > 1) {
+		if (hasMultiProfile) {
 			if (ProfileSelectionMode.SILENT.name().equals(profileSelection.getProfileSelectionMode())) {
 				log.warn("Multiple profiles detected for LDAPIdentitySelection, but SILENT mode not supported. Profile selection will be disabled.");
 				result.setFilteredAttributes(cpResponseData.getUserDetailMap());
@@ -165,17 +188,17 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 
 		final var unselectedProfileIds = getUnselectedProfileId(profileSelectionData, cpResponseData, selectedProfileId);
 		var filteredProfileValues = discardUnselectedProfileAttributeValues(cpResponseData, unselectedProfileIds);
-		applyProfileTransformations(selectedProfileId, filteredProfileValues);
+		applyProfileTransformations(selectedProfileId, filteredProfileValues, profileSelector, profileSelection.getOrganizationSelector());
 
 		log.info("Done SSO multi-profiles for cpIssuer={} rpIssuer={} subjectNameId={} "
-						+ "having profileCount={} selectedProfileId={} profileMode={}",
+						+ "having multiProfile={} selectedProfileId={} profileMode={}",
 				cpResponseData.getIssuerId(), relyingPartyConfig.getId(), cpResponseData.getNameId(),
-				profileCount, selectedProfileId, profileSelection.getProfileSelectionMode());
+				hasMultiProfile, selectedProfileId, profileSelection.getProfileSelectionMode());
 
 		return ProfileSelectionResult.builder()
-				.selectedProfileId(selectedProfileId)
-				.filteredAttributes(filteredProfileValues)
-				.build();
+									 .selectedProfileId(selectedProfileId)
+									 .filteredAttributes(filteredProfileValues)
+									 .build();
 	}
 
 	@Override
@@ -188,15 +211,16 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 			if (userProfileIds.isEmpty()) {
 				return ProfileResponse.builder().build();
 			}
-		 	var displayClaims = getDisplayClaims(profileSelectionData);
+			var displayClaims = getDisplayClaims(profileSelectionData);
+			var translationClaims = profileSelectionData.getProfileSelectionProperties().getTranslationAttributes();
 			var profileName = profileSelectionData.getProfileSelectionProperties().getDisplayName();
-			profiles = generateProfileObjects(userProfileIds, profileName, displayClaims,  userDetails);
+			profiles = generateProfileObjects(userProfileIds, profileName, displayClaims, translationClaims, userDetails);
 		}
 		return ProfileResponse.builder()
-				.id(profileSelectionData.getSelectedProfileId())
-				.profiles(profiles)
-				.application(profileSelectionData.getApplicationName())
-				.build();
+							  .id(profileSelectionData.getSelectedProfileId())
+							  .profiles(profiles)
+							  .application(profileSelectionData.getApplicationName())
+							  .build();
 	}
 
 	private List<String> getDisplayClaims(ProfileSelectionData profileSelectionData) {
@@ -220,7 +244,7 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 			return false;
 		}
 		boolean match = userProfiles.stream().anyMatch(name -> name.equals(selectedProfileId));
-		log.debug("SelectedProfileId={} in ProfiledProfileName={} : result={}" , selectedProfileId, userProfiles, match);
+		log.debug("SelectedProfileId={} in ProfiledProfileName={} : result={}", selectedProfileId, userProfiles, match);
 		return match;
 	}
 
@@ -229,10 +253,11 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 		return profileAttributes.size();
 	}
 
-	private static List<Profile> generateProfileObjects(List<String> profiles,String profileName, List<String> displayClaims,
-														Map<AttributeName, List<String>> userDetails) {
+	private static List<Profile> generateProfileObjects(List<String> profiles, String profileName, List<String> displayClaims,
+														List<String> translationKeys, Map<AttributeName, List<String>> userDetails) {
 		List<Profile> outputProfiles = new ArrayList<>();
 		for (var profileId : profiles) {
+
 			Map<String, List<String>> additionalInformation = new HashMap<>();
 			if (displayClaims != null) {
 				for (var displayClaim : displayClaims) {
@@ -242,23 +267,78 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 					}
 				}
 			}
+
+			Map<String, Map<String, String>> translationInformation = new HashMap<>();
+			getTranslationData(translationKeys, userDetails, profileId, translationInformation);
+			log.debug("TranslationInformation={} for profile={}", translationInformation.size(), profileId);
+
 			var name = profileId;
 			if (profileName != null) {
 				var profileDisplayNameValues = getDisplayValues(profileId, profileName, userDetails);
 				if (!profileDisplayNameValues.isEmpty()) {
-					name = profileDisplayNameValues.get(0);
+					name = profileDisplayNameValues.getFirst();
 				}
 			}
+
 			var profile = Profile.builder()
 								 .id(profileId)
 								 .name(name)
 								 .displayClaims(new LinkedHashMap<>(additionalInformation))
+								 .translations(translationInformation)
 								 .build();
 			outputProfiles.add(profile);
 		}
 		return outputProfiles.stream()
-				.sorted(Comparator.comparing(Profile::getName))
-				.toList();
+							 .sorted(Comparator.comparing(Profile::getName))
+							 .toList();
+	}
+
+	private static void getTranslationData(List<String> translationKeys, Map<AttributeName, List<String>> userDetails, String profileId, Map<String, Map<String, String>> translationInformation) {
+		if (translationKeys != null) {
+			for (var translationKey : translationKeys) {
+				final var translationValues = getTranslationValues(profileId, translationKey, userDetails);
+				if (!translationValues.isEmpty()) {
+					translationInformation.put(translationKey, translationValues);
+				} else {
+					translationInformation.put(translationKey, Map.of(translationKey, translationKey));
+				}
+			}
+		}
+	}
+
+	private static Map<String, String> getTranslationValues(String profileName, String translationKey, Map<AttributeName, List<String>> userDetails) {
+		final var attributes = DefinitionUtil.findAttributesByNameStartsWith(userDetails, translationKey);
+		Map<String, String> translationValues = new HashMap<>();
+		for (var entry : attributes.entrySet()) {
+			AttributeName key = entry.getKey();
+			List<String> values = entry.getValue();
+			if (values != null) {
+				values = values.stream()
+							   .filter(value -> value.contains(profileName))
+							   .map(value -> getAttributeValueWithoutPrefix(profileName, value))
+							   .toList();
+				if (!values.isEmpty()) {
+					translationValues.put(key.getName(), values.getFirst());
+				}
+			}
+		}
+		return translationValues;
+	}
+
+	private static String getAttributeValueWithoutPrefix(String profileName, String value) {
+		var elements = value.split(PROFILE_SEPARATOR, 3);
+		if (Objects.equals(value, profileName)) {
+			return elements[0];
+		}
+		// profileId:attribute
+		if (elements.length == 2) {
+			return elements[1];
+		}
+		// profileId:orgId:attributes
+		if (elements.length == 3) {
+			return elements[2];
+		}
+		return value;
 	}
 
 	private static List<String> getDisplayValues(String profileName,
@@ -267,21 +347,16 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 		final var values = DefinitionUtil.findValueByName(userDetails, attributeName);
 		return values.stream()
 					 .filter(value -> value.contains(profileName))
-					 .map(value -> {
-						 int separatorIndex = value.indexOf(DEFAULT_PROFILE_SEPARATOR);
-						 return separatorIndex != -1 ?
-								 value.substring(separatorIndex + DEFAULT_PROFILE_SEPARATOR.length()) :
-								 value;
-					 })
+					 .map(value -> getAttributeValueWithoutPrefix(profileName, value))
 					 .toList();
 	}
 
 	private String getSelectedProfileId(ProfileSelectionData profileSelectionData) {
-        // Profile selection enabled but user did not select any profile = user has 1 profile
-        return profileSelectionData.getSelectedProfileId();
+		// Profile selection enabled but user did not select any profile = user has 1 profile
+		return profileSelectionData.getSelectedProfileId();
 	}
 
-	private List<String> getUnselectedProfileId(ProfileSelectionData profileSelectionData, CpResponseData cpResponseData, String selectedProfileId){
+	private List<String> getUnselectedProfileId(ProfileSelectionData profileSelectionData, CpResponseData cpResponseData, String selectedProfileId) {
 		if (selectedProfileId == null) {
 			return new ArrayList<>();
 		}
@@ -331,27 +406,42 @@ public class LdapIdentitySelectionService implements ProfileSelectionService {
 		}
 
 		return values.stream()
-					.filter(profileAttr -> unselectedProfileIds.stream().noneMatch(profileAttr::contains))
-					.toList();
+					 .filter(profileAttr -> unselectedProfileIds.stream().noneMatch(profileAttr::contains))
+					 .toList();
 	}
 
 	private static String getLdapSource() {
 		return ClaimSourceUtil.buildClaimSource(ClaimSource.IDM, ExternalStores.LDAP.name());
 	}
 
-	private void applyProfileTransformations(String profileId, Map<AttributeName, List<String>> attributes){
+	private void applyProfileTransformations(String profileId, Map<AttributeName, List<String>> attributes, String profileSelector, String organizationSelector) {
 		if (profileId == null || profileId.isBlank() || attributes == null || attributes.isEmpty()) {
 			return;
 		}
-
-		final String prefix = profileId + DEFAULT_PROFILE_SEPARATOR;
+		// Cut prefixes generated in initial profile selection
+		final String prefix = profileId + PROFILE_SEPARATOR;
 
 		for (Map.Entry<AttributeName, List<String>> entry : attributes.entrySet()) {
-			List<String> transformedValues = entry.getValue().stream()
-												  .map(value -> value != null && value.startsWith(prefix)
-														  ? value.substring(prefix.length()) : value)
-												  .toList();
+			AttributeName attributeName = entry.getKey();
+			List<String> transformedValues = getTransformedValues(profileSelector, organizationSelector, entry, attributeName, prefix);
 			entry.setValue(transformedValues);
 		}
+	}
+
+	private static List<String> getTransformedValues(String profileSelector, String organizationSelector, Map.Entry<AttributeName, List<String>> entry, AttributeName attributeName, String prefix) {
+		List<String> transformedValues;
+		if (organizationSelector != null && (profileSelector.equals(attributeName.getName()) || profileSelector.equals(attributeName.getNamespaceUri()))) {
+			transformedValues = entry.getValue().stream()
+									 .filter(Objects::nonNull)
+									 .map(value -> value.split((PROFILE_SEPARATOR))[0])
+									 .toList();
+		}
+		else {
+			transformedValues = entry.getValue().stream()
+									 .map(value -> value != null && value.startsWith(prefix)
+											 ? value.substring(prefix.length()) : value)
+									 .toList();
+		}
+		return transformedValues;
 	}
 }

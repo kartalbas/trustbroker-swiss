@@ -37,7 +37,6 @@ import net.shibboleth.shared.collection.Pair;
 import net.shibboleth.shared.net.URLBuilder;
 import net.shibboleth.shared.xml.SerializeSupport;
 import org.apache.velocity.app.VelocityEngine;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.opensaml.core.config.ConfigurationService;
 import org.opensaml.core.xml.XMLObject;
 import org.opensaml.core.xml.config.XMLObjectProviderRegistry;

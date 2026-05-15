@@ -32,7 +32,6 @@ import swiss.trustbroker.api.announcements.service.AnnouncementService;
 import swiss.trustbroker.api.saml.service.OutputService;
 import swiss.trustbroker.common.exception.RequestDeniedException;
 import swiss.trustbroker.common.exception.TechnicalException;
-import swiss.trustbroker.common.saml.dto.SamlBinding;
 import swiss.trustbroker.common.saml.dto.SignatureContext;
 import swiss.trustbroker.common.saml.util.OpenSamlUtil;
 import swiss.trustbroker.common.util.WebUtil;
@@ -43,6 +42,7 @@ import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.homerealmdiscovery.util.OperationalUtil;
 import swiss.trustbroker.saml.dto.ResponseData;
 import swiss.trustbroker.saml.dto.RpRequest;
+import swiss.trustbroker.saml.util.SamlValidationUtil;
 import swiss.trustbroker.saml.util.SkinnyHrd;
 import swiss.trustbroker.sessioncache.dto.StateData;
 import swiss.trustbroker.sso.service.SsoService;
@@ -127,12 +127,10 @@ public class AuthenticationService {
 		var referer = WebUtil.getReferer(httpRequest);
 		var rpIssuer = authnRequest.getIssuer().getValue();
 		var relyingParty = relyingPartySetupService.getRelyingPartyByIssuerIdOrReferrer(rpIssuer, referer);
-		if (relyingPartyDefinitions.isRpDisabled(relyingParty, httpRequest, trustBrokerProperties.getNetwork())) {
-			throw new TechnicalException(String.format("RelyingParty=%s disabled", relyingParty.getId()));
-		}
 
 		// validate
-		validateBinding(relyingParty, signatureContext.getBinding());
+		SamlValidationUtil.validateProtocolRestrictions(
+				relyingParty, signatureContext.getBinding(), httpRequest, trustBrokerProperties, false);
 
 		// single CP dispatching))
 		var cpSelectionHint = HrdSupport.getClaimsProviderHint(httpRequest, trustBrokerProperties);
@@ -221,13 +219,6 @@ public class AuthenticationService {
 			return true;
 		}
 		return cpSelectionHint == null && relyingParty.isSsoEnabled();
-	}
-
-	private static void validateBinding(RelyingParty relyingParty, SamlBinding binding) {
-		if (!relyingParty.isValidInboundBinding(binding)) {
-			throw new RequestDeniedException(String.format("Relying party rpIssuerId=%s does not support inbound binding=%s",
-					relyingParty.getId(), binding));
-		}
 	}
 
 	private String skipHrdWithSsoSession(AuthnRequest authnRequest, HttpServletRequest httpRequest, String referer,

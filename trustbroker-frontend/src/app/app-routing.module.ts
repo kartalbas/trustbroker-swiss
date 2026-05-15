@@ -27,7 +27,7 @@ export const routes: Routes = [
 	{
 		path: 'home/:issuer/:authnRequestId',
 		component: HrdCardsContainerComponent,
-		data: { pageTitle: 'trustbroker.hrd.page.title' }
+		data: { pageTitle: 'trustbroker.hrd.page.title', title: 'trustbroker.hrd.main.title' }
 	},
 	{
 		path: 'device/:cpUrn/:rpUrn/:id',
@@ -35,39 +35,52 @@ export const routes: Routes = [
 	},
 	{
 		path: '',
-		component: HrdCardsComponent
+		component: HrdCardsComponent,
+		data: { title: 'trustbroker.hrd.page.title' }
+	},
+	{
+		path: 'claimsprovidernotice/:name/:issuer/:authnRequestId',
+		loadComponent: () => import('./claims-provider-notice/claims-provider-notice.component')
 	},
 	{
 		path: 'sso',
-		component: SsoComponent
+		component: SsoComponent,
+		data: { title: 'trustbroker.sso.main.title' }
 	},
 	{
 		path: 'sso/:ssoGroupName',
-		component: SsoComponent
+		component: SsoComponent,
+		data: { title: 'trustbroker.sso.main.title' }
 	},
 	{
 		path: 'sso/:silent/:issuer/:ignored',
-		component: SsoComponent
+		component: SsoComponent,
+		data: { title: 'trustbroker.sso.main.title' }
 	},
 	{
 		path: 'accessrequest/:sessionId/:state',
-		component: AccessRequestComponent
+		component: AccessRequestComponent,
+		data: { title: 'trustbroker.accessrequest.title' }
 	},
 	{
 		path: 'profile/selection/:id',
-		component: ProfileSelectionComponent
+		component: ProfileSelectionComponent,
+		data: { title: 'trustbroker.profile.title' }
 	},
 	{
 		path: 'profile/:id',
-		component: ProfileSelectionComponent
+		component: ProfileSelectionComponent,
+		data: { title: 'trustbroker.profile.title' }
 	},
 	{
 		path: 'announcements/:issuer/:authnRequestId',
-		loadComponent: () => import('./announcements/announcements.component')
+		loadComponent: () => import('./announcements/announcements.component'),
+		data: { title: 'trustbroker.announcements.title' }
 	},
 	{
 		path: 'announcements/:issuer/:authnRequestId/:appName',
-		loadComponent: () => import('./announcements/announcements.component')
+		loadComponent: () => import('./announcements/announcements.component'),
+		data: { title: 'trustbroker.announcements.title' }
 	},
 	{
 		path: 'failure/:textKey/:reference',

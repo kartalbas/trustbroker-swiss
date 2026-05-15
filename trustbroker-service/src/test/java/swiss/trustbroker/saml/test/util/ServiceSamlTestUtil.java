@@ -50,6 +50,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.saml.util.OpenSamlUtil;
 import swiss.trustbroker.common.saml.util.SamlIoUtil;
+import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.config.dto.SecurityChecks;
 import swiss.trustbroker.federation.xmlconfig.ClaimsParty;
 import swiss.trustbroker.federation.xmlconfig.ClaimsProviderDefinitions;
@@ -83,6 +84,8 @@ public class ServiceSamlTestUtil implements SamlHttpTestBase {
 
 	public static final String CP_AUTHN_REQUEST_ID = "idp-requestid";
 
+	public static final String GLOBAL_PROFILES_PATH = "profiles";
+
 	public static AuthnRequest loadAuthnRequest() {
 		String authnRequestFilePath = SamlTestBase.filePathFromClassPath(TEST_AUTHN_REQUEST);
 		return SamlIoUtil.unmarshallAuthnRequest(authnRequestFilePath);
@@ -111,12 +114,15 @@ public class ServiceSamlTestUtil implements SamlHttpTestBase {
 
 	public static RelyingPartySetup loadBaseClaimMergeTest() {
 		List<RelyingParty> relyingParties = loadRelyingParties();
-		RelyingPartySetup rulesDefinitions = RelyingPartySetup.builder().relyingParties(relyingParties).build();
+		var rulesDefinitions = RelyingPartySetup.builder().relyingParties(relyingParties).build();
 		var claimsProviderSetup = ClaimsProviderSetup.builder().build();
-		String definitionPath = getBaseRuleFilePath();
+		var definitionPath = getBaseRuleFilePath();
+		var properties = new TrustBrokerProperties();
+		properties.setGlobalProfilesPath(GLOBAL_PROFILES_PATH);
 		RelyingPartySetupUtil.loadRelyingParty(relyingParties, definitionPath,
-				CACHE_DEFINITION_PATH, null, Collections.emptyList(), null, claimsProviderSetup, null);
-		Credential credential = SamlTestBase.dummyCredential(
+				CACHE_DEFINITION_PATH, properties, Collections.emptyList(), null, claimsProviderSetup,
+				null, null);
+		var credential = SamlTestBase.dummyCredential(
 				SamlTestBase.TEST_TB_KEYSTORE_JKS,
 				SamlTestBase.TEST_KEYSTORE_PW,
 				SamlTestBase.TEST_KEYSTORE_TB_ALIAS);
@@ -136,7 +142,7 @@ public class ServiceSamlTestUtil implements SamlHttpTestBase {
 
 	public static RelyingPartySetup loadRelyingPartySetup() {
 		String ruleDefinition = SamlTestBase.filePathFromClassPath(TEST_SETUP_RP);
-		return ClaimsProviderUtil.loadRelyingPartySetup(ruleDefinition);
+		return ClaimsProviderUtil.loadRelyingPartySetup(ruleDefinition, null);
 	}
 
 	public static ClaimsProviderDefinitions loadClaimsProviderDefinitions() {
@@ -180,10 +186,8 @@ public class ServiceSamlTestUtil implements SamlHttpTestBase {
 			throw new TechnicalException("KeyInfoGeneratorFactory is null");
 		}
 		KeyInfoGenerator keyInfoGenerator = keyInfoGeneratorFactory.newInstance();
-		KeyInfo keyInfo = null;
 		try {
-			keyInfo = keyInfoGenerator.generate(credential);
-			return keyInfo;
+			return keyInfoGenerator.generate(credential);
 		}
 		catch (SecurityException e) {
 			throw new TechnicalException(String.format("Key generation exception: %s", e.getMessage()));
@@ -232,7 +236,7 @@ public class ServiceSamlTestUtil implements SamlHttpTestBase {
 
 	public static ClaimsProviderSetup loadClaimsProviderSetup() {
 		String claimSetup = SamlTestBase.filePathFromClassPath(TEST_SETUP_CP);
-		ClaimsProviderSetup claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(claimSetup);
+		ClaimsProviderSetup claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(claimSetup, null);
 		Credential credential = SamlTestBase.dummyCredential(
 				SamlTestBase.TEST_TB_KEYSTORE_JKS,
 				SamlTestBase.TEST_KEYSTORE_PW,

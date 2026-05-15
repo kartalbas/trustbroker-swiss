@@ -42,7 +42,7 @@ public class TestConstants {
 
 	public static final String TEST_SETUP_RP = TestConstants.LATEST_DEFINITION_PATH + "SetupRP.xml";
 
-	public static final int VALID_TEST_RPS = 24;
+	public static final int VALID_TEST_RPS = 25;
 
 	public static final int INVALID_TEST_RPS = 1;
 

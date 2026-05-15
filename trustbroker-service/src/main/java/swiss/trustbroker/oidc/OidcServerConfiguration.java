@@ -46,6 +46,7 @@ import org.springframework.security.oauth2.server.authorization.InMemoryOAuth2Au
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationServerMetadataClaimNames;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.authentication.JwtClientAssertionAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationValidator;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
@@ -72,7 +73,7 @@ import swiss.trustbroker.mapping.service.QoaMappingService;
 import swiss.trustbroker.metrics.service.MetricsService;
 import swiss.trustbroker.oidc.cache.service.OidcMetadataCacheService;
 import swiss.trustbroker.oidc.jackson.ObjectMapperFactory;
-import swiss.trustbroker.oidc.pkce.PublicClientRefreshTokenAuthenticationConverter;
+import swiss.trustbroker.oidc.pkce.PublicClientRefreshTokenAndTokenExchangeAuthenticationConverter;
 import swiss.trustbroker.oidc.pkce.PublicClientRefreshTokenAuthenticationProvider;
 import swiss.trustbroker.saml.service.RelyingPartyService;
 import swiss.trustbroker.script.service.ScriptService;
@@ -124,7 +125,8 @@ public class OidcServerConfiguration {
 	@Bean
 	@Order(Ordered.HIGHEST_PRECEDENCE)
 	public SecurityFilterChain authorizationServerSecurityFilterChain(
-			SessionRegistry sessionRegistry, HttpSecurity http, OAuth2AuthorizationService authorizationService, JwtDecoder jwtDecoder, JWKSource<SecurityContext> jwkSource) throws Exception {
+			HttpSecurity http, OAuth2AuthorizationService authorizationService, JwtDecoder jwtDecoder,
+			JWKSource<SecurityContext> jwkSource, CustomOAuth2AuthorizationService customOAuth2AuthorizationService) throws Exception {
 
 		// setup spring-authorization-server for login federation
 		var authServerConfigurer = new OAuth2AuthorizationServerConfigurer();
@@ -132,7 +134,7 @@ public class OidcServerConfiguration {
 		// mandatory client authentication functionality (client login required for /authorize, /token, /introspect, ...)
 		authServerConfigurer.clientAuthentication(clientAuthentication -> clientAuthentication
 				.authenticationConverters(converters ->
-						converters.add(new PublicClientRefreshTokenAuthenticationConverter()))
+					converters.add(new PublicClientRefreshTokenAndTokenExchangeAuthenticationConverter()))
 				// https://github.com/spring-projects/spring-authorization-server/pull/1432
 				.authenticationProviders(providers ->
 						providers.add(new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository)))
@@ -148,7 +150,10 @@ public class OidcServerConfiguration {
 
 		// mandatory /token endpoint
 		authServerConfigurer.tokenEndpoint(tokenEndpoint -> tokenEndpoint
-				.authenticationProvider(new CustomOAuth2TokenExchangeAuthenticationProvider(registeredClientRepository, authorizationService, oidcMetadataCacheService, relyingPartyDefinitions, trustBrokerProperties, jwkSource, relyingPartyService, relyingPartySetupService, qoaMappingService))
+				.authenticationProvider(new CustomOAuth2TokenExchangeAuthenticationProvider(registeredClientRepository,
+						customOAuth2AuthorizationService, oidcMetadataCacheService, relyingPartyDefinitions, trustBrokerProperties, jwkSource,
+						relyingPartyService, relyingPartySetupService, qoaMappingService))
+				.authenticationProvider(jwtClientAssertionAuthenticationProvider(registeredClientRepository, authorizationService, jwtDecoder))
 				.accessTokenRequestConverter(new CustomOAuth2TokenExchangeAuthenticationConverter())
 				.errorResponseHandler(new CustomFailureHandler(
 						"token", relyingPartyDefinitions, trustBrokerProperties)));
@@ -157,7 +162,7 @@ public class OidcServerConfiguration {
 		if (oidcProperties.isIntrospectionEnabled()) {
 			authServerConfigurer.tokenIntrospectionEndpoint(introspectEndpoint -> introspectEndpoint
 					.authenticationProvider(new CustomTokenIntrospectionAuthenticationProvider(
-							registeredClientRepository, authorizationService))
+							registeredClientRepository, authorizationService, relyingPartyDefinitions, trustBrokerProperties))
 					.errorResponseHandler(new CustomFailureHandler(
 							"introspect", relyingPartyDefinitions, trustBrokerProperties)));
 		}
@@ -214,6 +219,12 @@ public class OidcServerConfiguration {
 		return http.build();
 	}
 
+	private AuthenticationProvider jwtClientAssertionAuthenticationProvider(ClientConfigInMemoryRepository registeredClientRepository, OAuth2AuthorizationService authorizationService, JwtDecoder jwtDecoder) {
+		var jwtClientAssertionAuthenticationProvider = new JwtClientAssertionAuthenticationProvider(registeredClientRepository, authorizationService);
+		jwtClientAssertionAuthenticationProvider.setJwtDecoderFactory(new CustomJwtClientAssertionDecoderFactory(relyingPartyDefinitions, trustBrokerProperties, jwtDecoder));
+		return jwtClientAssertionAuthenticationProvider;
+	}
+
 	private static Consumer<List<AuthenticationProvider>> configureAuthorizationProviderChain() {
 		return authenticationProviders -> authenticationProviders.forEach(authenticationProvider -> {
 			if (authenticationProvider instanceof OAuth2AuthorizationCodeRequestAuthenticationProvider oauth2Provider) {
@@ -226,11 +237,8 @@ public class OidcServerConfiguration {
 
 	@Bean
 	BearerTokenResolver bearerTokenResolver() {
-		DefaultBearerTokenResolver bearerTokenResolver = new DefaultBearerTokenResolver();
-		if (trustBrokerProperties.getOidc() != null && trustBrokerProperties.getOidc().isTokenInRequestBodyEnabled()) {
-			bearerTokenResolver.setAllowFormEncodedBodyParameter(true);
-		}
-		return bearerTokenResolver;
+		DefaultBearerTokenResolver defaultBearerTokenResolver = new DefaultBearerTokenResolver();
+		return new CustomBearerTokenResolver(defaultBearerTokenResolver, relyingPartyDefinitions, trustBrokerProperties);
 	}
 
 	Consumer<OidcProviderConfiguration.Builder> customizeProviderConfigurationEndpoint() {
@@ -300,12 +308,12 @@ public class OidcServerConfiguration {
 			var principal = authentication.getPrincipal();
 			var clientId = context.getAuthorization().getRegisteredClientId();
 			var clientConfig = relyingPartyDefinitions.getOidcClientConfigById(clientId, trustBrokerProperties);
-			if(clientConfig.isEmpty()) {
+			if (clientConfig.isEmpty()) {
 				throw new TechnicalException("Could not find client config for " + clientId);
 			}
 			if (principal instanceof JwtAuthenticationToken jwtAuthenticationToken) {
 				var tokenClaims = jwtAuthenticationToken.getToken().getClaims();
-				claims = OidcUserInfoUtil.filterUnwantedClaims(tokenClaims,
+				claims = OidcUserInfoUtil.filterUnwantedClaims(tokenClaims, clientId,
 						relyingPartyDefinitions, scriptService, trustBrokerProperties);
 			}
 			if (principal instanceof BearerTokenAuthentication bearerTokenAuthentication) {

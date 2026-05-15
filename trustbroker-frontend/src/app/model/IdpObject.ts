@@ -22,6 +22,12 @@ export interface IdpObject {
 	color: string;
 	disabled?: string;
 	order?: number;
+	noticeMaxAgeSec?: number;
+	noticeClaimsProviders?: string[];
+}
+
+export interface IdpObjectWithNoticeClaimProviders extends IdpObject {
+	noticeClaimProviders: IdpObject[];
 }
 
 export interface BannerConfig {

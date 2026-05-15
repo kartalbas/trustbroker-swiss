@@ -41,25 +41,31 @@ public class ConfigUtil {
 	 *     <li>Map with index as key to List</li>
 	 * </ul>
 	 */
-	public static <T> T getConfig(Map<String, ? extends Object> config, String name, Class<T> resultClass, T defaultValue) {
+	public static <T> T getConfig(Map<String, ?> config, String name, Class<T> resultClass, T defaultValue) {
 		var value = config.get(name);
 		return getValueAsType(value, resultClass, defaultValue);
 	}
 
-	public static String getConfigString(Map<String, ? extends Object> config, String name, String defaultValue) {
+	@SuppressWarnings("unchecked")
+	public static <T> Map<String, T> getConfigMap(Map<String, ?> config, String name,
+			Map<String, T>  defaultValue) {
+		return getConfig(config, name, Map.class, defaultValue);
+	}
+
+	public static String getConfigString(Map<String, ?> config, String name, String defaultValue) {
 		return getConfig(config, name, String.class, defaultValue);
 	}
 
-	public static Integer getConfigInteger(Map<String, ? extends Object> config, String name, Integer defaultValue) {
+	public static Integer getConfigInteger(Map<String, ?> config, String name, Integer defaultValue) {
 		return getConfig(config, name, Integer.class, defaultValue);
 	}
 
-	public static Boolean getConfigBoolean(Map<String, ? extends Object> config, String name, Boolean defaultValue) {
+	public static Boolean getConfigBoolean(Map<String, ?> config, String name, Boolean defaultValue) {
 		return getConfig(config, name, Boolean.class, defaultValue);
 	}
 
 	@SuppressWarnings("unchecked")
-	public static <T> List<T> getConfigList(Map<String, ? extends Object> config, String name, List<T> defaultValue) {
+	public static <T> List<T> getConfigList(Map<String, ?> config, String name, List<T> defaultValue) {
 		return getConfig(config, name, List.class, defaultValue);
 	}
 
@@ -91,7 +97,7 @@ public class ConfigUtil {
 			return (T) Boolean.valueOf(valueStr);
 		}
 		if (value != null) {
-			log.warn("idm.attributes.{} has class={} expectedClass={} value={}",
+			log.warn("attribute has class={} expectedClass={} value={}",
 					value.getClass().getName(), resultClass.getName(), value);
 		}
 		return defaultValue;

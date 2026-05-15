@@ -58,30 +58,35 @@ services:
 
   ldap:
     container_name: ldap
-    image: osixia/openldap:stable
+    image: osixia/openldap:latest
     ports:
-      - '1389:1389'
-      - '1636:1636'
+      - '1389:389'
+      - '636:636'
+    command: --copy-service -l debug
     environment:
-      - BITNAMI_DEBUG=true
-      - LDAP_ROOT=dc=trustbroker,dc=swiss
-      - LDAP_ADMIN_USERNAME=admin
+      - LDAP_TLS=false
+      - LDAP_BASE_DN=dc=trustbroker,dc=ch
+      - LDAP_ORGANISATION=Trustbroker
+      - LDAP_DOMAIN=trustbroker.ch
       - LDAP_ADMIN_PASSWORD=secret
-      - LDAP_CUSTOM_SCHEMA_DIR=/schema_init
-      - LDAP_CUSTOM_LDIF_DIR=/ldif_init
+      - LDAP_CONFIG_PASSWORD=secret
+      - KEEP_EXISTING_CONFIG=false
+      - LDAP_REMOVE_CONFIG_AFTER_SETUP=false
+      - LDAP_LOG_LEVEL=64
     volumes:
-      - ./ldap_init/schema:/schema_init:ro
-      - ./ldap_init/ldif:/ldif_init:ro
-      #- openldap_data:/bitnami/openldap
+      - ./ldap_init/schema:/container/service/slapd/assets/config/bootstrap/schema/custom
+      - ./ldap_init/ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom
+      - ldap_data:/var/lib/ldap
+      - ldap_config:/etc/ldap/slapd.d
 
   # http://localhost:8099
-  # loginDN: cn=admin,dc=trustbroker,dc=swiss  password: secret
+  # loginDN: cn=admin,dc=trustbroker,dc=ch  password: secret
   phpldapadmin:
-    image: osixia/phpldapadmin:latest
+    image: osixia/phpldapadmin:stable
     container_name: phpldapadmin
     environment:
       - PHPLDAPADMIN_HTTPS=false
-      - PHPLDAPADMIN_LDAP_HOSTS=ldap://ldap:1389
+      - PHPLDAPADMIN_LDAP_HOSTS=ldap
     ports:
       - '8099:80'
     depends_on:
@@ -157,3 +162,7 @@ services:
       - PKI_PASSPHRASE=${PKI_PASSPHRASE}
     networks:
       - trustbroker-network
+
+volumes:
+  ldap_data:
+  ldap_config:

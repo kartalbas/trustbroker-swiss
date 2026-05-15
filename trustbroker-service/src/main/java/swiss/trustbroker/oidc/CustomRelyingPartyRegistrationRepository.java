@@ -54,11 +54,13 @@ public class CustomRelyingPartyRegistrationRepository implements RelyingPartyReg
 
 	@Override
 	public RelyingPartyRegistration findByRegistrationId(String registrationId) {
-		var oidcClient = relyingPartyDefinitions.getOidcClientConfigById(registrationId, trustBrokerProperties);
-		if (oidcClient.isPresent()) {
-			var samlRp = relyingPartyDefinitions.getRelyingPartyByOidcClientId(registrationId, null,
-					trustBrokerProperties, true);
-			return getRelyingPartyRegistration(oidcClient.get(), getIdentityProvider(), samlRp);
+		var rpOidcClient = relyingPartyDefinitions.getRelyingPartyOidcClientByOidcClientId(registrationId, trustBrokerProperties);
+		if (rpOidcClient.isPresent()) {
+			var relyingParty = rpOidcClient.get().getKey();
+			var oidcClient = rpOidcClient.get().getValue();
+			// Without RP disabled check here as this would make the canary override impossible:
+			OidcValidator.validateProtocolRestrictions(relyingParty, registrationId, trustBrokerProperties);
+			return getRelyingPartyRegistration(oidcClient, getIdentityProvider(), relyingParty);
 		}
 		throw OidcExceptionHelper.createOidcException(OAuth2ErrorCodes.INVALID_REQUEST,
 				String.format("No OIDC support for clientId=%s", registrationId), "client_id not supported");

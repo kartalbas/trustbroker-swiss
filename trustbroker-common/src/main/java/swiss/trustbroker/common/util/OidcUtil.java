@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -220,21 +221,6 @@ public class OidcUtil {
 					String.format("Invalid Basic authorization header=%s - no elements when split by :", basicAuth));
 		}
 		return split[0];
-	}
-
-	// https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
-	// https://www.rfc-editor.org/rfc/rfc6749.html#section-2.3.1
-	public static String getBasicAuthorizationHeader(String clientId, String clientSecret) {
-		return HTTP_BASIC + ' ' + Base64Util.encode(
-				WebUtil.urlEncodeValue(clientId) + ':' + WebUtil.urlEncodeValue(clientSecret),
-				Base64Util.Base64Encoding.UNCHUNKED);
-	}
-
-	// https://openid.net/specs/openid-connect-core-1_0.html#UserInfo
-	// https://www.rfc-editor.org/rfc/rfc6750#section-2.1
-	// accessToken must be JWT encoded: base64(header).base64(payload).base64(signature)
-	public static String getBearerAuthorizationHeader(String accessToken) {
-		return OIDC_BEARER + ' ' + accessToken;
 	}
 
 	private static String getClaimFromAuthorizationHeader(String header, String claimName) {
@@ -450,25 +436,49 @@ public class OidcUtil {
 		}
 	}
 
-	// combine two sets, values from primary win, either may be null
+	// combine two sets, either may be null
+	// values from primary win, unless allowSubjectOverride=false for sub or allowClaimsOverride=false for other claims
 	public static JWTClaimsSet mergeJwtClaims(JWTClaimsSet primary, String primarySource,
-											  JWTClaimsSet secondary, String secondarySource) {
+			JWTClaimsSet secondary, String secondarySource, boolean allowClaimsOverride, boolean allowSubjectOverride) {
 		if (primary == null) {
+			log.debug("Using claims from secondarySource={}", secondarySource);
 			return secondary;
 		}
 		if (secondary == null) {
+			log.debug("Using claims from primarySource={}", primarySource);
 			return primary;
 		}
-		var claims = new JWTClaimsSet.Builder(secondary);
-		for (var claim : primary.getClaims().entrySet()) {
-			var overWritten = secondary.getClaim(claim.getKey());
-			if (overWritten != null && !overWritten.equals(claim.getValue())) {
-				log.info("Overwriting claim {}={} from secondarySource={} with value={} from primarySource={}",
-						claim.getKey(), overWritten, secondarySource, claim.getValue(), primarySource);
+		var claims = new JWTClaimsSet.Builder(primary);
+		for (var claim : secondary.getClaims().entrySet()) {
+			if (!claims.getClaims().containsKey(claim.getKey())) {
+				claims.claim(claim.getKey(), claim.getValue());
 			}
-			claims.claim(claim.getKey(), claim.getValue());
+			else {
+				var overwritten = claims.getClaims().get(claim.getKey());
+				if (!Objects.equals(overwritten, claim.getValue())) {
+					if (mayOverride(claim.getKey(), allowClaimsOverride, allowSubjectOverride)) {
+						log.info("Overwriting claim {}='{}' from primarySource={} with value='{}' from secondarySource={}",
+								claim.getKey(), overwritten, primarySource, claim.getValue(), secondarySource);
+						claims.claim(claim.getKey(), claim.getValue());
+					}
+					else {
+						log.info("NOT overwriting claim {}='{}' from primarySource={} with value='{}' from secondarySource={} "
+										+ "due to allowClaimsOverride={} allowSubjectOverride={}",
+								claim.getKey(), overwritten, primarySource, claim.getValue(), secondarySource,
+								allowClaimsOverride, allowSubjectOverride);
+					}
+				}
+				// else same value
+			}
 		}
 		return claims.build();
+	}
+
+	private static boolean mayOverride(String claimName, boolean allowClaimsOverride, boolean allowSubjectOverride) {
+		if (claimName.equals(OIDC_SUBJECT)) {
+			return allowSubjectOverride;
+		}
+		return allowClaimsOverride;
 	}
 
 	public static String generateNonce() {

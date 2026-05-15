@@ -33,6 +33,8 @@ public class Profile {
 
 	private final String applications;
 
+	private final Map<String, Map<String, String>> translations;
+
 	private final Map<String, List<String>> displayClaims;
 
 }

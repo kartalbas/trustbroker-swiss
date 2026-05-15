@@ -157,7 +157,7 @@ class AuthorizationCodeFlowServiceTest {
 				.when(oidcTokenService)
 				.fetchTokens(client, cp.getCertificates(), configuration, OidcMockTestData.REDIRECT_URI, OidcMockTestData.CODE);
 		var key = OidcMockTestData.givenJwk(OidcMockTestData.KEY_ID);
-		doReturn(key).when(oidcMetadataCacheService).getKey(cp, OidcMockTestData.KEY_ID);
+		doReturn(key).when(oidcMetadataCacheService).getKey(cp, OidcMockTestData.KEY_ID, null);
 		var stateData = OidcMockTestData.givenStateData();
 		var userInfoClaims = OidcUtil.parseJwtClaims(OidcMockTestData.USERINFO_RESPONSE);
 		doReturn(userInfoClaims)
@@ -168,7 +168,7 @@ class AuthorizationCodeFlowServiceTest {
 		var attributes = Map.of(new Definition(OidcMockTestData.CLAIM_EMAIL), List.of(OidcMockTestData.EMAIL),
 				new Definition(OidcMockTestData.GIVEN_NAME), List.of(OidcMockTestData.GIVEN_NAME),
 				new Definition(OidcMockTestData.FAMILY_NAME), List.of(OidcMockTestData.FAMILY_NAME));
-		doReturn(attributes).when(jwtClaimsService).mapClaimsToAttributes(any(), eq(cp));
+		doReturn(attributes).when(jwtClaimsService).mapAndValidateClaimsToAttributes(any(), eq(cp));
 
 		var cpResponse = authorizationCodeFlowService.handleCpResponse(
 				OidcMockTestData.REALM, OidcMockTestData.CODE, cp, stateData);
@@ -231,8 +231,8 @@ class AuthorizationCodeFlowServiceTest {
 								// USERINFO
 								OidcMockTestData.CLAIM_GIVEN_NAME, OidcMockTestData.GIVEN_NAME,
 								OidcMockTestData.CLAIM_FAMILY_NAME, OidcMockTestData.FAMILY_NAME,
-								OidcMockTestData.CLAIM_EMAIL, OidcMockTestData.EMAIL,
 								// ID_TOKEN
+								OidcMockTestData.CLAIM_EMAIL, tokenEmail,
 								OidcUtil.OIDC_SUBJECT, OidcMockTestData.SUBJECT,
 								OidcUtil.OIDC_ISSUER, OidcMockTestData.CP_ISSUER_ID
 						)},

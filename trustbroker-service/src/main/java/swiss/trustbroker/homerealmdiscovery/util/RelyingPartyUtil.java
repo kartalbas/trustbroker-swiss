@@ -17,11 +17,15 @@ package swiss.trustbroker.homerealmdiscovery.util;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.util.ConfigUtil;
+import swiss.trustbroker.federation.xmlconfig.AttributesSelection;
 import swiss.trustbroker.federation.xmlconfig.ClaimsProvider;
+import swiss.trustbroker.federation.xmlconfig.Definition;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
 
 public class RelyingPartyUtil {
@@ -68,5 +72,16 @@ public class RelyingPartyUtil {
 									 return ConfigUtil.removeIdSpecChar(id);
 								 })
 								 .collect(Collectors.toSet());
+	}
+
+	public static void validateRequiredDefinitions(AttributesSelection attributesSelection, Map<Definition, List<String>> attributes) {
+		if (attributesSelection == null) {
+			return;
+		}
+		for (Definition definition : attributesSelection.getDefinitions()) {
+			if (!attributes.containsKey(definition) && Boolean.TRUE.equals(definition.getRequired())) {
+				throw new TechnicalException(String.format("Missing attribute in source=CP required by definition='%s'", definition));
+			}
+		}
 	}
 }

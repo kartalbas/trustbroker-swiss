@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,6 +51,8 @@ import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.config.dto.SecurityChecks;
 import swiss.trustbroker.config.dto.WsTrustConfig;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
+import swiss.trustbroker.federation.xmlconfig.WsTrust;
+import swiss.trustbroker.federation.xmlconfig.WsTrustBinding;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.sessioncache.dto.StateData;
 import swiss.trustbroker.sso.service.SsoService;
@@ -92,6 +95,7 @@ class WsTrustRenewValidatorTest {
 	@BeforeEach
 	void setup() {
 		wsTrustConfig = new WsTrustConfig();
+		wsTrustConfig.setEnabled(true);
 		when(trustBrokerProperties.getWstrust()).thenReturn(wsTrustConfig);
 		securityChecks = new SecurityChecks();
 		when(trustBrokerProperties.getSecurity()).thenReturn(securityChecks);
@@ -99,16 +103,23 @@ class WsTrustRenewValidatorTest {
 
 	@ParameterizedTest
 	@MethodSource
-	void applies(RequestType requestType, boolean enabled, boolean expectedResult) {
-		wsTrustConfig.setRenewEnabled(enabled);
+	void applies(RequestType requestType, boolean protocolEnabled, boolean bindingEnabled, List<String> bindings,
+			boolean expectedResult) {
+		wsTrustConfig.setEnabled(protocolEnabled);
+		wsTrustConfig.setRenewEnabled(bindingEnabled);
+		wsTrustConfig.setBindings(bindings);
 		assertThat(wsTrustRenewValidator.applies(requestType), is(expectedResult));
 	}
 
 	static Object[][] applies() {
 		return new Object[][] {
-				{ WsTrustUtil.createRequestType(RequestType.RENEW), true, true },
-				{ WsTrustUtil.createRequestType(RequestType.RENEW), false, false },
-				{ WsTrustUtil.createRequestType(RequestType.ISSUE), true, false }
+				{ WsTrustUtil.createRequestType(RequestType.RENEW), true, true, null, true },
+				{ WsTrustUtil.createRequestType(RequestType.RENEW), true, false, List.of(WsTrustBinding.ISSUE.getAction()), false },
+				{ WsTrustUtil.createRequestType(RequestType.RENEW), true, false,
+						List.of(WsTrustBinding.ISSUE.getAction(), WsTrustBinding.RENEW.getAction()), true },
+				{ WsTrustUtil.createRequestType(RequestType.RENEW), false, true, List.of(WsTrustBinding.RENEW.name()), false },
+				{ WsTrustUtil.createRequestType(RequestType.ISSUE), true, true, Collections.emptyList(), false },
+				{ WsTrustUtil.createRequestType(RequestType.ISSUE), true, false, List.of(WsTrustBinding.RENEW.name()), false }
 		};
 	}
 
@@ -259,9 +270,12 @@ class WsTrustRenewValidatorTest {
 
 	private RelyingParty givenRelyingParty() {
 		var trustCredentials = SamlTestBase.dummyCredentials(SamlTestBase.X509_RSAENC_P12);
+		var wsTrust = new WsTrust();
+		wsTrust.setSupportedBindings(List.of(WsTrustBinding.RENEW));
 		return RelyingParty.builder()
 						   .id(WsTrustTestUtil.RP_ISSUER_ID)
 						   .rpTrustCredentials(trustCredentials)
+						   .wsTrust(wsTrust)
 						   .build();
 	}
 

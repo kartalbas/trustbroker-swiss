@@ -157,7 +157,7 @@ public class FederationMetadataService {
 
 	protected IDPSSODescriptor buildIdpSsoDescriptor() {
 		var samlConfig = trustBrokerProperties.getSaml();
-		if (samlConfig == null || !samlConfig.isIdpMetadataEnabled()) {
+		if (samlConfig == null || !samlConfig.isEnabled() || !samlConfig.isIdpMetadataEnabled()) {
 			return null;
 		}
 		var consumerUrl = samlConfig.getConsumerUrl();
@@ -204,7 +204,7 @@ public class FederationMetadataService {
 
 	protected SPSSODescriptor buildSpSsoDescriptor() {
 		var samlConfig = trustBrokerProperties.getSaml();
-		if (samlConfig == null || !samlConfig.isSpMetadataEnabled()) {
+		if (samlConfig == null || !samlConfig.isEnabled() || !samlConfig.isSpMetadataEnabled()) {
 			return null;
 		}
 		var consumerUrl = samlConfig.getConsumerUrl();

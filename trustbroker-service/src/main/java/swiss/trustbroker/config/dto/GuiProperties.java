@@ -107,6 +107,15 @@ public class GuiProperties {
 	private CookieProperties announcementCookie = new CookieProperties();
 
 	/**
+	 * XTB can (via a plugin) support a notice screen that can be configured, where an end user can set a cookie to not show the screen next time.
+	 * These cookie preferences are used to customize it's client side behavior.
+	 *
+	 * @since 1.14.0
+	 */
+	@Builder.Default
+	private CookieProperties claimsProviderNoticeCookie = new CookieProperties();
+
+	/**
 	 * Browser caching max-age in days for resources that have resource version in the path (a hash or version number).
 	 * <br/>
 	 * These resources can be cached for a long period as any change will result in a new resource version.

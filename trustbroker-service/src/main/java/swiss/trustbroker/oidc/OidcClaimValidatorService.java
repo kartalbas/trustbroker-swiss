@@ -67,7 +67,7 @@ public class OidcClaimValidatorService {
 							OidcUtil.OIDC_ISSUER, issuer, OidcUtil.TOKEN_RESPONSE_ID_TOKEN,
 							claimsParty.getId(), client.getId(), expectedIssuer, expectedIssuerSource));
 		}
-		validateSubAudAzp(claims, claimsParty.getId(), client);
+		validateSubAudAzp(claims, claimsParty.getId(), client, OidcUtil.TOKEN_RESPONSE_ID_TOKEN);
 		var now =  clock.millis();
 		var expirationTime = claims.getExpirationTime();
 		if (!validNotOnOrAfter(expirationTime, now)) {
@@ -114,26 +114,31 @@ public class OidcClaimValidatorService {
 		}
 	}
 
-	public static void validateSubAudAzp(JWTClaimsSet claims, String counterPartyId, OidcClient client) {
+	public static void validateSubAudAzp(JWTClaimsSet claims, String counterPartyId, OidcClient client, String tokenType) {
+		if (claims == null) {
+			throw new RequestDeniedException(
+					String.format("Missing claims OIDC %s from cpIssuerId=%s for client=%s ",
+							tokenType, counterPartyId, client.getId()));
+		}
 		var subject = claims.getSubject();
 		if (subject == null) {
 			throw new RequestDeniedException(
 					String.format("Missing subject claim %s in OIDC %s from cpIssuerId=%s for client=%s ",
-							OidcUtil.OIDC_SUBJECT, OidcUtil.TOKEN_RESPONSE_ID_TOKEN,
+							OidcUtil.OIDC_SUBJECT, tokenType,
 							counterPartyId, client.getId()));
 		}
 		var audience = claims.getAudience();
-		if (!audience.contains(client.getId())) {
+		if ((audience == null || audience.isEmpty()) || !audience.contains(client.getId())) {
 			throw new RequestDeniedException(
 					String.format("Wrong audience %s=%s in OIDC %s from cpIssuerId=%s expected clientId=%s",
-							OidcUtil.OIDC_AUDIENCE, audience, OidcUtil.TOKEN_RESPONSE_ID_TOKEN,
+							OidcUtil.OIDC_AUDIENCE, audience, tokenType,
 							counterPartyId, client.getId()));
 		}
 		var authorizedParty = claims.getClaim(OidcUtil.OIDC_AUTHORIZED_PARTY);
 		if (authorizedParty != null && !authorizedParty.equals(client.getId())) {
 			throw new RequestDeniedException(
 					String.format("Wrong authorized party %s=%s in OIDC %s from cpIssuerId=%s expected clientId=%s",
-							OidcUtil.OIDC_AUTHORIZED_PARTY, authorizedParty, OidcUtil.TOKEN_RESPONSE_ID_TOKEN,
+							OidcUtil.OIDC_AUTHORIZED_PARTY, authorizedParty, tokenType,
 							counterPartyId, client.getId()));
 		}
 	}
@@ -178,16 +183,10 @@ public class OidcClaimValidatorService {
 	}
 
 	boolean validNotBefore(Date check, long now) {
-		if (check == null) {
-			return true;
-		}
-		return now >= check.getTime() + trustBrokerProperties.getSecurity().getNotBeforeToleranceSec();
+		return OidcValidator.validNotBefore(check, now, trustBrokerProperties.getSecurity().getNotBeforeToleranceSec());
 	}
 
-	boolean validNotOnOrAfter(Date check, long now) {
-		if (check == null) {
-			return true;
-		}
-		return now < check.getTime() + trustBrokerProperties.getSecurity().getNotOnOrAfterToleranceSec();
+	public boolean validNotOnOrAfter(Date check, long now) {
+		return OidcValidator.validNotOnOrAfter(check, now, trustBrokerProperties.getSecurity().getNotOnOrAfterToleranceSec());
 	}
 }

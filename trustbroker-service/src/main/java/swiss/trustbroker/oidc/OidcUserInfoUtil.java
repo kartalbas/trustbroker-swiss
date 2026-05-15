@@ -20,7 +20,6 @@ import java.util.Map;
 
 import lombok.extern.slf4j.Slf4j;
 import swiss.trustbroker.common.exception.TechnicalException;
-import swiss.trustbroker.common.util.OidcUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.config.dto.RelyingPartyDefinitions;
 import swiss.trustbroker.saml.dto.CpResponse;
@@ -31,11 +30,10 @@ public class OidcUserInfoUtil {
 
 	OidcUserInfoUtil() {}
 
-	static Map<String, Object> filterUnwantedClaims(final Map<String, Object> claims,
+	static Map<String, Object> filterUnwantedClaims(final Map<String, Object> claims, String clientId,
 			RelyingPartyDefinitions relyingPartyDefinitions,
 			ScriptService scriptService, TrustBrokerProperties trustBrokerProperties) {
 		var ret = new HashMap<>(claims);
-		var clientId = OidcUtil.getClientIdFromTokenClaims(claims);
 		if (clientId != null) {
 			try {
 				// drop configured claims

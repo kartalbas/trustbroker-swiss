@@ -30,7 +30,9 @@ import swiss.trustbroker.common.saml.dto.SignatureContext;
 import swiss.trustbroker.common.saml.util.SamlFactory;
 import swiss.trustbroker.common.util.StringUtil;
 import swiss.trustbroker.common.util.WebUtil;
+import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
+import swiss.trustbroker.oidc.OidcValidator;
 import swiss.trustbroker.oidc.client.controller.OidcClientController;
 import swiss.trustbroker.saml.dto.CpResponse;
 import swiss.trustbroker.saml.dto.ResponseData;
@@ -56,6 +58,8 @@ public class OidcClientService {
 
 	private final RelyingPartyService relyingPartyService;
 
+	private final TrustBrokerProperties trustBrokerProperties;
+
 	@Transactional
 	public String handleSuccessCpResponse(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse,
 			String realm, String code, String state) {
@@ -64,6 +68,7 @@ public class OidcClientService {
 		log.debug("Processing successful authorization code response for realm={} stateData={} code=***",
 				realm, stateData.getId());
 		var claimsParty = relyingPartySetupService.getClaimsProviderSetupByIssuerId(stateData.getCpIssuer(), null);
+		OidcValidator.validateProtocolRestrictions(claimsParty, null, httpServletRequest, trustBrokerProperties);
 		var cpResponse = authorizationCodeFlowService.handleCpResponse(realm, code, claimsParty, stateData);
 		var referer = WebUtil.getOriginOrReferer(httpServletRequest);
 		cpResponse = assertionConsumerService.handleSuccessCpResponse(claimsParty, stateData, cpResponse, referer, null);
@@ -100,5 +105,4 @@ public class OidcClientService {
 		var signatureContext = SignatureContext.forBinding(binding, null);
 		return ResponseData.of(response, stateData.getId(), signatureContext);
 	}
-
 }

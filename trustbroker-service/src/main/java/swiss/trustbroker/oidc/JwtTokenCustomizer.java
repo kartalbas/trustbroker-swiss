@@ -582,5 +582,4 @@ class JwtTokenCustomizer implements OAuth2TokenCustomizer<JwtEncodingContext> {
 						 .claims(preComputedClaims) // output towards OIDC clients
 						 .build();
 	}
-
 }

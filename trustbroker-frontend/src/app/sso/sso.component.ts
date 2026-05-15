@@ -22,7 +22,6 @@ import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { SsoParticipant } from '../model/SsoParticipant';
 import { SsoParticipants } from '../model/SsoParticipants';
-import { Theme } from '../model/Theme';
 import { ApiService } from '../services/api.service';
 import { ThemeService } from '../services/theme-service';
 import { ValidationService } from '../services/validation-service';
@@ -42,7 +41,7 @@ export class SsoComponent implements OnInit {
 	silentLogout: boolean;
 	logoutIssuer: string;
 	clicked: boolean;
-	theme: Theme;
+	theme$ = this.themeService.theme$;
 
 	constructor(
 		private readonly apiService: ApiService,
@@ -50,14 +49,7 @@ export class SsoComponent implements OnInit {
 		private readonly breakpointObserver: BreakpointObserver,
 		private readonly themeService: ThemeService,
 		private readonly validation: ValidationService
-	) {
-		this.theme = this.themeService.getTheme();
-		this.themeService.subscribe({
-			next: theme => {
-				this.theme = theme;
-			}
-		});
-	}
+	) {}
 
 	ngOnInit(): void {
 		this.route.params.subscribe((params: Params) => {
@@ -77,11 +69,6 @@ export class SsoComponent implements OnInit {
 		this.breakpointObserver.observe(['(min-width: 600px)']).subscribe((state: BreakpointState) => {
 			this.isButtonSize = !state.matches;
 		});
-	}
-
-	getImageUrl(imageName: string): string {
-		// re-use of HRD images in SSO, not too nice, but avoids duplication
-		return `${this.apiBaseUrl}ui/images/${imageName}`;
 	}
 
 	onClickCard(ssoGroupName: string, rpId: string, cpId: string, subjectNameId: string): void {

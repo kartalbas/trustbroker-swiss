@@ -15,7 +15,10 @@
 
 package swiss.trustbroker.config.dto;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -25,6 +28,7 @@ import org.opensaml.saml.common.xml.SAMLConstants;
 import org.opensaml.saml.saml2.core.NameIDType;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
+import swiss.trustbroker.common.saml.dto.SamlBinding;
 
 /**
  * SAML protocol configuration.
@@ -36,6 +40,15 @@ import org.springframework.context.annotation.Configuration;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SamlProperties {
+
+	/**
+	 * SAML protocol enabled.
+	 * <br/>
+	 * Default: true
+	 * @since 1.14.0
+	 */
+	@Builder.Default
+	private boolean enabled = true;
 
 	/**
 	 * XTB SAML consumer URL, included in the metadata.
@@ -135,4 +148,12 @@ public class SamlProperties {
 	 */
 	@Builder.Default
 	private boolean dropAttrSelectionIfNoFilter = false;
+
+	public Set<SamlBinding> getSamlBindings() {
+		if (bindings == null) {
+			return Collections.emptySet();
+		}
+		return bindings.stream().map(SamlBinding::ofNameOrValue).collect(Collectors.toUnmodifiableSet());
+	}
+
 }

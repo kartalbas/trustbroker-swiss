@@ -27,7 +27,7 @@ import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.http.HttpHeaders;
-import swiss.trustbroker.common.exception.TechnicalException;
+import swiss.trustbroker.common.exception.RequestDeniedException;
 import swiss.trustbroker.common.util.OidcUtil;
 import swiss.trustbroker.common.util.StringUtil;
 import swiss.trustbroker.util.ApiSupport;
@@ -74,7 +74,7 @@ public class OidcTxRequestWrapper extends HttpServletRequestWrapper {
 					return suffix.getValue();
 				}
 			}
-			throw new TechnicalException(String.format("Invalid access to Keycloak path=%s use one of %s",
+			throw new RequestDeniedException(String.format("Invalid access to Keycloak path=%s use one of %s",
 					securePath, SUFFIX_LIST));
 		}
 		// spring-authorization-server namespace validation
@@ -85,7 +85,7 @@ public class OidcTxRequestWrapper extends HttpServletRequestWrapper {
 					return securePath;
 				}
 			}
-			throw new TechnicalException(String.format("Invalid access to spring-security path=%s use one of %s",
+			throw new RequestDeniedException(String.format("Invalid access to spring-security path=%s use one of %s",
 					securePath, SUFFIX_LIST));
 		}
 		return securePath;

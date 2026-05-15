@@ -22,6 +22,7 @@ import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.EnumUtils;
 import org.opensaml.saml.common.xml.SAMLConstants;
 import swiss.trustbroker.common.exception.RequestDeniedException;
 
@@ -65,7 +66,15 @@ public enum SamlBinding {
 				return binding;
 			}
 		}
-		throw new RequestDeniedException(String.format("Unsupported protocolBinding=%s", protocolBinding));
+		throw new RequestDeniedException(String.format("Unsupported SAML protocolBinding=%s", protocolBinding));
+	}
+
+	public static SamlBinding ofNameOrValue(String protocolBinding) {
+		var binding = EnumUtils.getEnum(SamlBinding.class, protocolBinding);
+		if (binding == null) {
+			binding = of(protocolBinding);
+		}
+		return binding;
 	}
 
 	// test without exception

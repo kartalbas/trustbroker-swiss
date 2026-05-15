@@ -175,6 +175,16 @@ public class Definition implements Serializable, AttributeName {
 	@XmlAttribute(name = "scope")
 	private String scope;
 
+	/**
+	 * Indicates whether this attribute is mandatory.
+	 * <br/>
+	 * For an AuthnResponse, this attribute must always be included
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "required")
+	private Boolean required;
+
 	public Definition(String name) {
 		this.name = name;
 	}

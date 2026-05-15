@@ -15,6 +15,8 @@
 
 package swiss.trustbroker.config;
 
+import java.util.Optional;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -45,23 +47,19 @@ public class TrustbrokerCookieProcessor extends Rfc6265CookieProcessor {
 	@Override
 	public SameSiteCookies getSameSiteCookies() {
 		var sameSiteFlag = calculateSameSiteForUrl();
-		return SameSiteCookies.fromString(sameSiteFlag);
+		return sameSiteFlag != null ? SameSiteCookies.fromString(sameSiteFlag) : SameSiteCookies.UNSET;
 	}
 
 	private String calculateSameSiteForUrl() {
 		var request = HttpExchangeSupport.getRunningHttpRequest();
-		if (request == null || !request.isSecure()) {
-			log.debug("Request is not secure, use SameSite={}", defaultSameSite);
+		if (request == null) {
+			log.debug("No request, use SameSite={}", defaultSameSite);
 			return defaultSameSite;
 		}
 		var redirectUri = OidcSessionSupport.getRedirectUri(request);
-		if (redirectUri == null) {
-			log.debug("Request cannot be checked against redirect_uri, use SameSite={}", defaultSameSite);
-			return defaultSameSite;
-		}
-		var sameSiteFlag = WebUtil.getCookieSameSite(perimeterUrl, redirectUri);
-		log.debug("Cookie sameSite={} for redirectUri={}", sameSiteFlag, redirectUri);
-		return sameSiteFlag;
+		var crossSiteRequest = WebUtil.isCrossSiteRequest(request);
+		var insecureRequest = Optional.of(!request.isSecure());
+		return WebUtil.getCookieSameSite(defaultSameSite, perimeterUrl, redirectUri, crossSiteRequest, insecureRequest);
 	}
 
 	private static String calculateDefaultSameSite(TrustBrokerProperties trustBrokerProperties) {

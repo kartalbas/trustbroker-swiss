@@ -25,7 +25,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
 import swiss.trustbroker.audit.dto.EventType;
-import swiss.trustbroker.common.exception.TechnicalException;
 
 /**
  * Service for Micrometer metrics.
@@ -88,13 +87,13 @@ public class MetricsService {
 	}
 
 	public void gauge(String name, long value) {
-		var cachedValue = GAUGE_CACHE.computeIfAbsent(name, k -> new AtomicLong());
-		var gauge = this.meterRegistry.gauge(name, cachedValue);
-		if (gauge == null) {
-			throw new TechnicalException(String.format("Could not create Gauge metric with name=%s value=%d", name, value));
+		var cachedValue = GAUGE_CACHE.computeIfAbsent(name, k -> {
+			var atomic = new AtomicLong();
+			meterRegistry.gauge(name, atomic);
+			return atomic;
+		});
 
-		}
-		gauge.set(value);
+		cachedValue.set(value);
 	}
 
 }

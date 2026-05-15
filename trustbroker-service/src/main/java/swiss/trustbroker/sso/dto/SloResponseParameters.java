@@ -19,7 +19,10 @@ import java.util.Map;
 
 /**
  * Contains parameters required for rendering an SLO Logout response.
+ * @param velocityParameters parameters for Velocity SLO template
+ * @param useHttpGet use HTTP GET for response
+ * @param redirectUrl if not null, a redirect to this URL can be performed instead of rendering the Velocity template (for OIDC)
  */
-public record SloResponseParameters(Map<String, Object> velocityParameters, boolean useHttpGet) {
+public record SloResponseParameters(Map<String, Object> velocityParameters, boolean useHttpGet, String redirectUrl) {
 
 }

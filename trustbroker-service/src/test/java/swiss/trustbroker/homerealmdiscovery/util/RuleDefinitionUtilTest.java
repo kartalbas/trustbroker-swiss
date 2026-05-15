@@ -490,7 +490,8 @@ class RuleDefinitionUtilTest {
 		Collection<RelyingParty> claimRules = givenClaimRulesWithoutBase();
 		var claimsProviderSetup = ClaimsProviderSetup.builder().build();
 		RelyingPartySetupUtil.loadRelyingParty(claimRules, RelyingPartySetupUtil.DEFINITION_PATH,
-				CACHE_DEFINITION_PATH,null, List.of(idmQueryService), scriptService, claimsProviderSetup, null);
+				CACHE_DEFINITION_PATH,null, List.of(idmQueryService), scriptService, claimsProviderSetup,
+				null, null);
 
 		assertNotNull(claimRules);
 	}
@@ -500,17 +501,19 @@ class RuleDefinitionUtilTest {
 		Collection<RelyingParty> claimRules = givenClaimRulesWithBase();
 		var claimsProviderSetup = ClaimsProviderSetup.builder().build();
 		assertDoesNotThrow(() -> RelyingPartySetupUtil.loadRelyingParty(claimRules, RelyingPartySetupUtil.DEFINITION_PATH,
-				CACHE_DEFINITION_PATH, null, List.of(idmQueryService), scriptService, claimsProviderSetup, null));
+				CACHE_DEFINITION_PATH, null, List.of(idmQueryService), scriptService, claimsProviderSetup,
+				null, null));
 		assertDoesNotThrow(
 				() -> RelyingPartySetupUtil.loadRelyingParty(claimRules, RelyingPartySetupUtil.DEFINITION_PATH,
-						CACHE_DEFINITION_PATH, null, List.of(idmQueryService), scriptService, claimsProviderSetup, null));
+						CACHE_DEFINITION_PATH, null, List.of(idmQueryService), scriptService, claimsProviderSetup,
+						null, null));
 		claimRules.forEach(rp -> assertEquals(FeatureEnum.INVALID, rp.getEnabled(), "RP " + rp.getId()));
 	}
 
 	@Test
 	void loadRpInvalidXml() {
 		var mappingFile = new File(RuleDefinitionUtilTest.class.getClassLoader().getResource(TEST_SETUP_RP_INVALID_XML).getFile());
-		var result = XmlConfigUtil.loadConfigFromDirectory(mappingFile, RelyingParty.class);
+		var result = XmlConfigUtil.loadConfigFromDirectory(mappingFile, RelyingParty.class, null);
 		assertThat(result.skipped().size(), is(1));
 		assertThat(result.skipped().keySet().iterator().next(), endsWith(TEST_SETUP_RP_INVALID_XML));
 		assertThat(result.result(), hasSize(0));
@@ -523,7 +526,7 @@ class RuleDefinitionUtilTest {
 		var claimsProviderSetup = ClaimsProviderSetup.builder().build();
 
 		RelyingPartySetupUtil.loadRelyingParty(claimRules, definitionPath, CACHE_PATH,
-				null, List.of(idmQueryService), scriptService, claimsProviderSetup, null);
+				null, List.of(idmQueryService), scriptService, claimsProviderSetup, null, null);
 
 		assertNotNull(claimRules);
 		assertNull(claimRules.get(0).getConstAttributes());
@@ -538,7 +541,7 @@ class RuleDefinitionUtilTest {
 		String newCacheDefinition = baseCacheRuleFilePath();
 
 		RelyingPartySetupUtil.loadRelyingParty(claimRules, baseRuleFilePath(), newCacheDefinition, null,
-				List.of(idmQueryService), scriptService, claimsProviderSetup, null);
+				List.of(idmQueryService), scriptService, claimsProviderSetup, null, null);
 
 		RelyingParty testRp = claimRules.get(0);
 
@@ -578,7 +581,7 @@ class RuleDefinitionUtilTest {
 		var properties = new TrustBrokerProperties();
 		properties.setGlobalProfilesPath("profiles");
 		RelyingPartySetupUtil.loadRelyingParty(relyingParties, baseRuleFilePath(), "cache/", properties,
-				List.of(idmQueryService), scriptService, claimsProviderSetup, null);
+				List.of(idmQueryService), scriptService, claimsProviderSetup, null, null);
 		assertEquals(TestConstants.VALID_TEST_RPS, relyingParties.size());
 
 		validateTestRp(relyingParties, "urn:test:SAMPLERP");
@@ -676,7 +679,7 @@ class RuleDefinitionUtilTest {
 		var definitionPath = baseRuleFilePath();
 		var claimsProviderSetup = ClaimsProviderSetup.builder().build();
 		assertDoesNotThrow(() -> RelyingPartySetupUtil.loadRelyingParty(claimRules, definitionPath, CACHE_PATH,
-				null, List.of(idmQueryService), scriptService, claimsProviderSetup, null));
+				null, List.of(idmQueryService), scriptService, claimsProviderSetup, null, null));
 		assertThat(rp.getEnabled(), is(expectedEnabled));
 	}
 
@@ -762,20 +765,20 @@ class RuleDefinitionUtilTest {
 
 	private List<RelyingParty> loadRelyingParties() {
 		var definition = RuleDefinitionUtilTest.class.getClassLoader().getResource(TEST_SETUP_RP).getFile();
-		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(definition);
+		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(definition, null);
 		return relyingPartySetup.getRelyingParties();
 	}
 
 	private List<ClaimsParty> loadClaimsParties() {
 		var definition = RuleDefinitionUtilTest.class.getClassLoader().getResource(TEST_SETUP_CP).getFile();
-		var claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(definition);
+		var claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(definition, null);
 		return claimsProviderSetup.getClaimsParties();
 	}
 
 	private List<RelyingParty> loadRulesWithCacheFromFile() {
 		String ruleDefinition =
 				RuleDefinitionUtilTest.class.getClassLoader().getResource(TEST_RULE_WITH_CACHE_BASE_DEFINITIONS).getFile();
-		RelyingPartySetup rulesDefinitions = ClaimsProviderUtil.loadRelyingPartySetup(ruleDefinition);
+		RelyingPartySetup rulesDefinitions = ClaimsProviderUtil.loadRelyingPartySetup(ruleDefinition, null);
 		return rulesDefinitions.getRelyingParties();
 	}
 

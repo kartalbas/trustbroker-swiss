@@ -50,6 +50,9 @@ public enum ClaimsMapper {
 	TIME_EPOCH {
 
 		public Object map(Object value) {
+			if (value instanceof String s && s.matches("\\d+")) {
+				return Long.parseLong(s);
+			}
 			var temporal = toTemporal(value);
 			if (temporal instanceof Instant instant) {
 				return instant.getEpochSecond();

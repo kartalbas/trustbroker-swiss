@@ -19,6 +19,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -29,12 +30,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.naming.directory.SearchControls;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.config.TrustBrokerProperties;
@@ -45,16 +44,13 @@ import swiss.trustbroker.federation.xmlconfig.IdmQuery;
 import swiss.trustbroker.federation.xmlconfig.ProfileSelection;
 import swiss.trustbroker.federation.xmlconfig.ProfileSelectionMode;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
-import swiss.trustbroker.ldap.model.LdapAttributeMapper;
 import swiss.trustbroker.saml.dto.CpResponse;
 
 @SpringBootTest(classes = { LdapService.class })
 class LdapServiceTest {
 
-	private static final String SUBJECT_NAME_ID = "subjectNameId";
-
 	@MockitoBean
-	LdapTemplate ldapTemplate;
+	LdapClient ldapClient;
 
 	@MockitoBean
 	TrustBrokerProperties trustBrokerProperties;
@@ -64,7 +60,7 @@ class LdapServiceTest {
 
 	@Test
 	void getLdapAttributesTest() {
-		var ldapConfig = LdapStoreConfig.builder().undefined("UNDEF").build();
+		var ldapConfig = new LdapStoreConfig(true, "UNDEF", ":");
 		doReturn(ldapConfig).when(trustBrokerProperties).getLdap();
 
 		var cpResponse = givenCpResponse();
@@ -72,8 +68,7 @@ class LdapServiceTest {
 		var rpConfig = RelyingParty.builder().id("relyingPartyId").profileSelection(profileSelection).build();
 		String base = "base";
 		var idmRequests = givemIdmLookup(base);
-
-		doReturn(givenLdapAttributes()).when(ldapTemplate).search(eq(base), any(), eq(SearchControls.SUBTREE_SCOPE), any(), any(LdapAttributeMapper.class));
+		doReturn(givenLdapAttributes()).when(ldapClient).search(eq(rpConfig), eq(cpResponse), any(), any());
 
 		var ldapResult = ldapService.getLdapAttributes(rpConfig, cpResponse, idmRequests);
 		assertEquals(2, ldapResult.getUserDetails().size());
@@ -83,7 +78,6 @@ class LdapServiceTest {
 
 	private static IdmLookup givemIdmLookup(String base) {
 		List<IdmQuery> queries = new ArrayList<>();
-		queries.add(IdmQuery.builder().store("ANY").build());
 		queries.add(IdmQuery.builder().store("LDAP").name("LDAP").appFilter("(&amp;(app=app1)(|(uid=${IDM:uid})(attribute=${attribute}))").subResource(base).build());
 		return IdmLookup.builder().queries(queries).build();
 	}
@@ -103,18 +97,15 @@ class LdapServiceTest {
 
 	@Test
 	void getProfileSelectorTest() {
-		var profileSelection = ProfileSelection.builder().build();
-		var ex = assertThrows(TechnicalException.class,
-				() -> ldapService.getProfileSelector(profileSelection, "RP_ID"));
-		assertThat(ex.getInternalMessage(), containsString("LDAP ProfileSelection.profileSelector cannot be null or empty"));
-		assertEquals("mail", ldapService.getProfileSelector(ProfileSelection.builder().profileSelector("mail").build(), "RP_ID"));
+ 		assertNull(ldapService.getProfileSelector(null, "RP_ID"));
+		assertEquals("mail", ldapService.getProfileSelector("mail", "RP_ID"));
 	}
 
 	@Test
 	void prefixValuesWithProfileSelectorTest() {
 		Map<String, List<String>> profile = givenLdapAttributes().get(0);
 		ldapService.prefixValuesWithProfileSelector("mail1", null, profile);
-		assertTrue(profile.get("uid").contains("mail1\\uid1"));
+		assertTrue(profile.get("uid").contains("mail1:uid1"));
 	}
 
 	@Test
@@ -136,54 +127,6 @@ class LdapServiceTest {
 		assertFalse(ldapService.userWithMultiProfiles(givenLdapAttributes(), null));
 		assertFalse(ldapService.userWithMultiProfiles(givenLdapAttributes(), "unknownSelector"));
 		assertTrue(ldapService.userWithMultiProfiles(givenLdapAttributes(), "mail"));
-	}
-
-	@Test
-	void getQueryBaseTest() {
-		var rpConfig = RelyingParty.builder().id("relyingPartyId").build();
-		var ex = assertThrows(TechnicalException.class,
-				() -> ldapService.getQueryBase(null, rpConfig));
-		assertThat(ex.getInternalMessage(), containsString("Missing subResource"));
-
-		assertEquals("subresource", ldapService.getQueryBase("subresource", rpConfig));
-	}
-
-	@Test
-	void queryFilterFormatterTest() {
-		var cpResponse = givenCpResponse();
-		var ldapConfig = LdapStoreConfig.builder().undefined("UNDEF").build();
-		doReturn(ldapConfig).when(trustBrokerProperties).getLdap();
-
-		var ex = assertThrows(TechnicalException.class,
-				() -> ldapService.queryFilterFormatter(null, cpResponse, "RP_ID"));
-		assertThat(ex.getInternalMessage(), containsString("AppFilter is null or empty"));
-
-		assertEquals("(&amp;(app=app1)(|(uid=uid)(attribute=attribute)))",
-				ldapService.queryFilterFormatter("(&amp;(app=app1)(|(uid=uid)(attribute=attribute)))", cpResponse, "RP_ID"));
-
-		assertEquals("(&amp;(app=app1)(|(uid=uid)(attribute=attribute)))",
-				ldapService.queryFilterFormatter("(&amp;(app=app1)(|(uid=${IDM:uid})(attribute=${attribute})))", cpResponse, "RP_ID"));
-
-		assertEquals("(&amp;(app=app1)(|(uid=uid)(id=UNDEF)))",
-				ldapService.queryFilterFormatter("(&amp;(app=app1)(|(uid=${IDM:uid})(id=${unknownAttr})))", cpResponse, "RP_ID"));
-
-		assertEquals("(&amp;(app=app1)(|(uid=user\\5c123)(attribute=\\2a)(value=\\29\\28test=\\2a)))",
-				ldapService.queryFilterFormatter("(&amp;(app=app1)(|(uid=${IDM:escape})(attribute=${wildcard})"
-						+ "(value=${injection})))", cpResponse, "RP_ID"));
-	}
-
-	@Test
-	void isChainedQueryTest() {
-		assertTrue(ldapService.isChainedQuery("IDM:uid"));
-		assertFalse(ldapService.isChainedQuery("uid"));
-	}
-
-	@Test
-	void getPlaceholderValueTest() {
-		var cpResponse = givenCpResponse();
-		assertEquals("NAME_ID", ldapService.getPlaceholderValue(SUBJECT_NAME_ID, cpResponse));
-		assertEquals("uid", ldapService.getPlaceholderValue("IDM:uid", cpResponse));
-		assertEquals("attribute", ldapService.getPlaceholderValue("attribute", cpResponse));
 	}
 
 	private static CpResponse givenCpResponse() {

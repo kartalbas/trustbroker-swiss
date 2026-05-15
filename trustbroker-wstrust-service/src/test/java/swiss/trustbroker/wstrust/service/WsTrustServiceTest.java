@@ -247,7 +247,10 @@ class WsTrustServiceTest {
 										  .validateSubjectConfirmationInResponseTo(false)
 										  .build());
 		when(trustBrokerProperties.getWstrust())
-				.thenReturn(WsTrustConfig.builder().issueEnabled(true).build());
+				.thenReturn(WsTrustConfig.builder()
+										 .enabled(true)
+										 .bindings(List.of("ISSUE"))
+										 .build());
 		when(trustBrokerProperties.getIssuer())
 				.thenReturn(WsTrustTestUtil.TEST_TO);
 		var assertion = OpenSamlUtil.buildAssertionObject(null);

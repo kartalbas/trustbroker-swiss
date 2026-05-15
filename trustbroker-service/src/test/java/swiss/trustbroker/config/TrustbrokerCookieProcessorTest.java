@@ -52,10 +52,14 @@ class TrustbrokerCookieProcessorTest {
 
 	@ParameterizedTest
 	@MethodSource
-	void getSameSiteCookies(String redirectUri, String perimeterUrl, String expected) {
+	void getSameSiteCookies(String redirectUri, String perimeterUrl, String secFetchMode, String expected) {
 		var request = new MockHttpServletRequest();
-		request.setSecure(redirectUri != null && redirectUri.startsWith("https"));
+		var secure = redirectUri != null && redirectUri.startsWith("https");
+		request.setSecure(secure);
 		request.setParameter(OidcUtil.REDIRECT_URI, redirectUri);
+		if (secFetchMode != null) {
+			request.addHeader(WebUtil.HTTP_HEADER_SEC_FETCH_SITE, secFetchMode);
+		}
 		var response = new MockHttpServletResponse();
 		HttpExchangeSupport.begin(request, response);
 		var properties = new TrustBrokerProperties();
@@ -66,10 +70,16 @@ class TrustbrokerCookieProcessorTest {
 
 	static Object[][] getSameSiteCookies() {
 		return new Object[][] {
-				{ null, null, WebUtil.COOKIE_SAME_SITE_NONE },
-				{ "https://localhost/app", "https://localhost/login", WebUtil.COOKIE_SAME_SITE_STRICT },
-				{ "https://trustbroker.swiss/app", "https://localhost/login", WebUtil.COOKIE_SAME_SITE_NONE },
-				{ "https://sub.trustbroker.swiss/app", "https://auth.trustbroker.swiss/login", WebUtil.COOKIE_SAME_SITE_STRICT }
+				{ null, null, null, SameSiteCookies.UNSET.getValue() }, // insecure
+				{ "https://localhost/app", "https://localhost/login", null, WebUtil.COOKIE_SAME_SITE_STRICT }, // same site URL
+				{ "https://localhost/app", "https://localhost/login", WebUtil.SEC_FETCH_SITE_CROSS_SITE,
+						WebUtil.COOKIE_SAME_SITE_NONE }, // cross-site header
+				{ "https://trustbroker.swiss/app", "https://localhost/login", null,
+						WebUtil.COOKIE_SAME_SITE_NONE }, // cross-site URL
+				{ "http://localhost/login", "https://trustbroker.swiss/app", null,
+						SameSiteCookies.UNSET.getValue() }, // cross-site URL, insecure
+				{ "https://sub.trustbroker.swiss/app", "https://auth.trustbroker.swiss/login", null,
+						WebUtil.COOKIE_SAME_SITE_STRICT } // same site URL
 		};
 	}
 }

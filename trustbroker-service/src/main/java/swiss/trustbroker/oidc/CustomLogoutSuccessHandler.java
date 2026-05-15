@@ -122,8 +122,17 @@ public class CustomLogoutSuccessHandler extends SimpleUrlLogoutSuccessHandler {
 			redirectUrl = ssoService.computeOidcSingleLogoutUrl(redirectUrl, referer, relyingParty);
 			var params = ssoService.buildSloResponseParameters(
 					relyingParty, referer, ssoSessionParticipants, nameId, oidcSessionId, redirectUrl);
-			VelocityUtil.renderTemplate(
-					velocityEngine, response, VelocityUtil.VELOCITY_SLO_TEMPLATE_ID, params.velocityParameters());
+			if (params.redirectUrl() != null) {
+				// optimization, would also work with a client that does not process HTML forms and JavaScript:
+				log.debug("No SSO notifications required, sending OIDC logout redirect for clientId={} realm={} ssoSessionId={} "
+								+ "oidcSessionId={} redirectUrl={}",
+						clientId, realmName, ssoSessionId, oidcSessionId, redirectUrl);
+				handleRedirectResponse(params.redirectUrl(), response);
+			}
+			else {
+				VelocityUtil.renderTemplate(
+						velocityEngine, response, VelocityUtil.VELOCITY_SLO_TEMPLATE_ID, params.velocityParameters());
+			}
 		}
 		else {
 			log.debug("Sending OIDC logout redirect for clientId={} realm={} ssoSessionId={} oidcSessionId={} redirectUrl={}",

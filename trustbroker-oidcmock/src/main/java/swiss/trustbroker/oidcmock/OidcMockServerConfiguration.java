@@ -15,8 +15,11 @@
 
 package swiss.trustbroker.oidcmock;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.UUID;
@@ -52,6 +55,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
+import org.springframework.util.ResourceUtils;
+import swiss.trustbroker.common.exception.TechnicalException;
+import swiss.trustbroker.common.saml.util.CredentialReader;
 
 @Configuration
 @AllArgsConstructor
@@ -92,7 +98,8 @@ public class OidcMockServerConfiguration {
 
 	@Bean
 	public JWKSource<SecurityContext> jwkSource() {
-		KeyPair keyPair = generateRsaKey();
+		KeyPair keyPair = generateRsaKey(oidcMockProperties.isGenerateJwkFromFile(), oidcMockProperties.getJwkFilePath(),
+				oidcMockProperties.getJwkKeyFilePassword());
 		RSAPublicKey publicKey = (RSAPublicKey) keyPair.getPublic();
 		RSAPrivateKey privateKey = (RSAPrivateKey) keyPair.getPrivate();
 		RSAKey rsaKey = new RSAKey.Builder(publicKey)
@@ -103,17 +110,28 @@ public class OidcMockServerConfiguration {
 		return new ImmutableJWKSet<>(jwkSet);
 	}
 
-	private static KeyPair generateRsaKey() {
-		KeyPair keyPair;
+	private static KeyPair generateRsaKey(boolean generateJwkFromFile, String jwkFilePath, String jwkKeyFilePassword) {
+		if (generateJwkFromFile && jwkFilePath != null && jwkKeyFilePassword != null) {
+			File file = null;
+			try {
+				file = ResourceUtils.getFile(jwkFilePath);
+			}
+			catch (FileNotFoundException e) {
+				throw new TechnicalException("Could not find JWK file: " + jwkFilePath);
+			}
+			PrivateKey privateKey = CredentialReader.readPemPrivateKey(file.getAbsolutePath(), jwkKeyFilePassword);
+			var publicKey = CredentialReader.readPemCertificate(file.getAbsolutePath()).getPublicKey();
+
+			return new KeyPair(publicKey, privateKey);
+		}
 		try {
 			KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
 			keyPairGenerator.initialize(2048);
-			keyPair = keyPairGenerator.generateKeyPair();
+			return keyPairGenerator.generateKeyPair();
 		}
 		catch (Exception ex) {
 			throw new IllegalStateException(ex);
 		}
-		return keyPair;
 	}
 
 	@Bean

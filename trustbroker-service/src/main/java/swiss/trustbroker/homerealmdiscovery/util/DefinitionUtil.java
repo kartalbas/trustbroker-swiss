@@ -51,6 +51,9 @@ public class DefinitionUtil {
 
 	public static <K extends AttributeName, T> Optional<Map.Entry<K, T>> findByNameOrNamespace(String name, String source,
 			Map<K, T> definitions) {
+		if (definitions == null) {
+			return Optional.empty();
+		}
 		var ret = definitions.entrySet()
 				.stream()
 				.filter(e -> e.getKey().equalsByNameOrNamespace(name, source))
@@ -364,6 +367,14 @@ public class DefinitionUtil {
 						 .map(Map.Entry::getValue)
 						 .findFirst()
 						 .orElse(Collections.emptyList());
+	}
+
+	public static Map<AttributeName, List<String>> findAttributesByNameStartsWith(Map<? extends AttributeName, List<String>> attributes,
+																				  String attributeName) {
+		return attributes.entrySet()
+						 .stream()
+						 .filter(entry -> entry != null && entry.getKey() != null && entry.getKey().getName().startsWith(attributeName))
+						 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 	}
 
 	private static void checkAmbiguities(Map<? extends AttributeName, ?> result, String name, String source) {

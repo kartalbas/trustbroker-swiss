@@ -68,6 +68,10 @@ public class CustomUserInfoResponseHandler implements AuthenticationSuccessHandl
 
 			var clientId = extractClientIdFromClaims(userInfoAuthenticationToken);
 
+			if (clientId == null && authentication.getPrincipal() instanceof JwtAuthenticationToken jwtAuthenticationToken) {
+				clientId = OidcUtil.getClientIdFromTokenClaims(jwtAuthenticationToken.getTokenAttributes());
+			}
+
 			var clientConfig = relyingPartyDefinitions.getOidcClientConfigById(clientId, trustBrokerProperties);
 			var relyingParty = relyingPartyDefinitions.getRelyingPartyByOidcClientId(clientId, null, trustBrokerProperties, false);
 			if (clientConfig.isEmpty()) {

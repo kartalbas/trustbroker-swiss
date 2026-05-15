@@ -363,7 +363,7 @@ public class QoaMappingUtil {
 					"Missing Qoa in config ctxClass=%s inboundIssuer=%s outboundIssuer=%s, cannot determine order"
 							+ " (HINT: Check trustbroker.config.qoa or SetupRP.xml/SetupCP.xml defining Qoa model)",
 					classRef, inboundQoaConf.issuerId(), outboundQoaConf.issuerId());
-			if (inboundQoaConf.config().enforce() || outboundQoaConf.config().enforce()) {
+			if ((inboundQoaConf.config() != null && inboundQoaConf.config().enforce()) || (outboundQoaConf.config() != null && outboundQoaConf.config().enforce())) {
 				throw new RequestDeniedException(StandardErrorCode.NO_AUTHN_CONTEXT, msg);
 			}
 			else {

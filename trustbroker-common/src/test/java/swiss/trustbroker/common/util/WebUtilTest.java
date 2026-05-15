@@ -16,14 +16,21 @@
 package swiss.trustbroker.common.util;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
+import jakarta.servlet.http.Cookie;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hc.client5.http.utils.DateUtils;
 import org.hamcrest.CoreMatchers;
 import org.junit.jupiter.api.Test;
@@ -68,6 +75,15 @@ class WebUtilTest {
 	})
 	void testUrlDecodeValue(String url, String expected) {
 		assertThat(WebUtil.urlDecodeValue(url), is(expected));
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {
+			"https%3A%2F%2Flocalhost,https%3A%2F%2Flocalhost",
+			"https%3a%2f%2flocalhost,https%3A%2F%2Flocalhost"
+	})
+	void testUrlDecodeEncodeValue(String url, String expected) {
+		assertThat(WebUtil.urlEncodeValue(WebUtil.urlDecodeValue(url)), is(expected));
 	}
 
 	@ParameterizedTest
@@ -156,6 +172,29 @@ class WebUtilTest {
 				{ TEST_URL, Collections.emptyMap(), TEST_URL },
 				{ "https://localhost/test", paramMap1, "https://localhost/test?key1=value1&key%2B=this%26that" },
 				{ "https://localhost/test?foo=bar", paramMap2, "https://localhost/test?foo=bar&a=&b=" }
+		};
+	}
+
+	@ParameterizedTest
+	@MethodSource
+	void testSplitQueryParameters(String url, boolean encodeParams, String expectedUrl,
+			List<Pair<String, String>> expectedParams) {
+		var result = WebUtil.splitQueryParameters(url, encodeParams);
+		assertThat(result.getKey(), is(expectedUrl));
+		assertThat(result.getValue(), is(expectedParams));
+	}
+
+	static Object[][] testSplitQueryParameters() {
+		return new Object[][] {
+				{ null, true, null, Collections.emptyList() },
+				{ "invalid", true, "invalid", Collections.emptyList() },
+				{ TEST_URL + "?a=b&c=d%22e", false, TEST_URL, List.of(
+						Pair.of("a", "b"), Pair.of("c", "d\"e")
+				) },
+				{ TEST_URL + "?a&q%22=x%22y&c=d&c=f", true, TEST_URL, List.of(
+						Pair.of("a", null), Pair.of("q&quot;", "x&quot;y"),
+						Pair.of("c", "d"), Pair.of("c", "f")
+				) }
 		};
 	}
 
@@ -268,13 +307,104 @@ class WebUtilTest {
 
 	@ParameterizedTest
 	@CsvSource(value = {
-			"null,null,None",
-			"null,https://localhost,None",
-			"https://foo.trustbroker.swiss/path1,https://bar.trustbroker.swiss/path2,Strict",
+			"null,null,",
+			"cross-site,true",
+			"same-site,false",
+			"same-origin,false",
+			"none,false"
 	}, nullValues = "null")
-	void testGetCookieSameSite(String perimeterUrl, String requestUrl, String expected) {
-		var result = WebUtil.getCookieSameSite(perimeterUrl, requestUrl);
+	void testIsCrossSiteRequest(String secFetchMode, Boolean  expected) {
+		var request = new MockHttpServletRequest();
+		if (secFetchMode != null) {
+			request.addHeader(WebUtil.HTTP_HEADER_SEC_FETCH_SITE, secFetchMode);
+		}
+		var result = WebUtil.isCrossSiteRequest(request);
+		assertThat(result, is(Optional.ofNullable(expected)));
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {
+			// test default usually Lax as this is never returned otherwise
+			"null,null,null,null,null,null", // nothing set
+			// default wins:
+			"Lax,null,null,null,null,Lax",
+			"Lax,null,null,false,false,Lax",
+			"None,null,null,null,false,None",
+			"Dynamic,null,null,null,null,Strict", // winning default dynamic adapted
+			"Lax,null,null,true,null,None", // cross-site true wins
+			"None,null,null,null,true,null", // insecure override
+			"Lax,null,https://localhost,null,null,None", // no perimeter
+			"Lax,https://foo.trustbroker.swiss/path1,https://localhost,null,null,None", // cross-site
+			"Lax,https://foo.trustbroker.swiss/path1,https://bar.trustbroker.swiss/path2,null,null,Strict", // same site
+			"Lax,https://foo.trustbroker.swiss/path1,https://bar.trustbroker.swiss/path2,true,null,None" // cross-site true wins
+	}, nullValues = "null")
+	void testGetCookieSameSite(String defaultValue, String perimeterUrl, String requestUrl, Boolean crossSiteRequest,
+			Boolean insecureRequest, String expected) {
+		var result = WebUtil.getCookieSameSite(defaultValue, perimeterUrl, requestUrl, Optional.ofNullable(crossSiteRequest),
+				Optional.ofNullable(insecureRequest));
 		assertThat(result, is(expected));
+	}
+
+	@Test
+	void testDeduplicateSetCookie() {
+		Map<String, List<Cookie>> addedCookies = new HashMap<>();
+		var cookie = WebUtil.createCookie(CookieParameters.builder()
+														  .name("test")
+														  .path("/test")
+														  .value("val1")
+														  .domain("localhost")
+														  .build());
+		var result = WebUtil.deduplicateSetCookie(addedCookies, cookie);
+		assertThat(result.orElse(null), is(cookie));
+		result = WebUtil.deduplicateSetCookie(addedCookies, cookie);
+		assertTrue(result.isEmpty());
+		var cookieCleared = WebUtil.createCookie(CookieParameters.builder()
+														  .name("test")
+														  .path("/test")
+														  .value("")
+														  .domain("localhost")
+														  .build());
+		result = WebUtil.deduplicateSetCookie(addedCookies, cookieCleared);
+		assertThat(result.orElse(null), is(cookieCleared));
+		var cookieChangedPath = WebUtil.createCookie(CookieParameters.builder()
+																 .name("test")
+																 .path("/test/sub")
+																 .value("val2")
+																 .domain("localhost")
+																 .build());
+		result = WebUtil.deduplicateSetCookie(addedCookies, cookieChangedPath);
+		assertThat(result.orElse(null), is(cookieChangedPath));
+		var otherCookie = WebUtil.createCookie(CookieParameters.builder()
+													   .name("test2")
+													   .path("/test")
+													   .value("val1")
+														.domain("localhost")
+													   .build());
+		result = WebUtil.deduplicateSetCookie(addedCookies, otherCookie);
+		assertThat(result.orElse(null), is(otherCookie));
+	}
+
+	@Test
+	void testCookieToString() {
+		var name = "testName";
+		var path = "/test";
+		var value = "val1";
+		var domain = "localhost";
+		var cookie = WebUtil.createCookie(CookieParameters.builder()
+														  .name(name)
+														  .path(path)
+														  .value(value)
+														  .secure(true)
+														  .httpOnly(true)
+														  .domain(domain)
+														  .sameSite(WebUtil.COOKIE_SAME_SITE_LAX)
+														  .build());
+		var cookies = WebUtil.cookiesToStrings(List.of(cookie));
+		assertThat(cookies, hasSize(1));
+		for (var check : new String[] { name, path, value, domain,
+				WebUtil.COOKIE_SAME_SITE_LAX, "HttpOnly=true", "Secure=true" }) {
+			assertThat(cookies.getFirst(), containsString(check));
+		}
 	}
 
 	@Test
@@ -344,4 +474,51 @@ class WebUtilTest {
 		assertThat(WebUtil.isCached(etag, ifNoneMatch, cacheTime, ifModifiedSince), is(expected));
 	}
 
+	@ParameterizedTest
+	@CsvSource(value = {
+			"null,null,false",
+			"navigate,http://other.localhost,false", // origin not checked
+			"cors,https://localhost:8080/test,true", // origin not checked
+			"null,http://other.localhost,true",
+			"null,https://localhost:8080/path,false",
+	}, nullValues = "null")
+	void testIsCorsRequest(String secFetchMode, String origin, boolean expected) {
+		var request = new MockHttpServletRequest();
+		if (secFetchMode != null) {
+			request.addHeader(WebUtil.HTTP_HEADER_SEC_FETCH_MODE, secFetchMode);
+		}
+		if (origin != null) {
+			request.addHeader(HttpHeaders.ORIGIN, origin);
+		}
+		var requestUri = "https://localhost:8080/test";
+		mockRequestUri(request, requestUri);
+
+		assertThat(WebUtil.isCorsRequest(request), is(expected));
+	}
+
+	private static void mockRequestUri(MockHttpServletRequest request, String requestUri) {
+		var uri = WebUtil.getValidatedUri(requestUri);
+		request.setRequestURI(requestUri);
+		request.setScheme(uri.getScheme());
+		request.setServerName(uri.getHost());
+		request.setServerPort(uri.getPort());
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {
+			"https://trustbroker.swiss,secret:1,Basic aHR0cHMlM0ElMkYlMkZ0cnVzdGJyb2tlci5zd2lzczpzZWNyZXQlM0Ex",
+			"client,1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890,Basic Y2xpZW50OjEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTA="
+	})
+	void testGetBasicAuthorizationHeader(String clientId, String secret, String expected) {
+		assertThat(WebUtil.getBasicAuthorizationHeader(clientId, secret), CoreMatchers.is(expected));
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {
+			"token,Bearer token",
+			"1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890,Bearer 1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"
+	})
+	void testGetBearerAuthorizationHeader(String token, String expected) {
+		assertThat(WebUtil.getBearerAuthorizationHeader(token), CoreMatchers.is(expected));
+	}
 }

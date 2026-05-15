@@ -18,5 +18,6 @@ export class Profile {
 	name: string;
 	unit: string;
 	applications: string;
+	translations: Record<string, Record<string, string[]>>;
 	displayClaims: Record<string, string[]>;
 }

@@ -71,6 +71,7 @@ import swiss.trustbroker.federation.xmlconfig.FlowPolicies;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
 import swiss.trustbroker.homerealmdiscovery.dto.ProfileRequest;
 import swiss.trustbroker.homerealmdiscovery.dto.SupportInfo;
+import swiss.trustbroker.homerealmdiscovery.service.RedirectOutputService;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.homerealmdiscovery.service.WebResourceProvider;
 import swiss.trustbroker.saml.dto.CpResponse;
@@ -145,6 +146,9 @@ class HrdControllerTest {
 
 	@MockitoBean
 	private WebResourceProvider resourceProvider;
+
+	@MockitoBean
+	private RedirectOutputService redirectOutputService;
 
 	@Autowired
 	private WebApplicationContext webApplicationContext;
@@ -337,7 +341,7 @@ class HrdControllerTest {
 		var cpResponse = CpResponse.builder().build();
 		stateData.setCpResponse(cpResponse);
 		doReturn(stateData).when(stateCacheService).find(PROFILE_ID, HrdController.class.getSimpleName());
-		var profileSelectionData = ProfileSelectionData.builder().selectedProfileId(PROFILE_ID).build();
+		var profileSelectionData = ProfileSelectionData.builder().selectedProfileId(PROFILE_ID).ignoreEmptyProfiles(true).build();
 		when(relyingPartyService.getProfileSelectionService(any())).thenReturn(mockProfileSelectionService);
 		doReturn(result).when(mockProfileSelectionService).buildProfileResponse(profileSelectionData, stateData.getCpResponse());
 		this.mockMvc.perform(get(apiSupport.getProfilesApi()).header(WebSupport.HTTP_HEADER_XTB_PROFILE_ID, PROFILE_ID))
@@ -363,6 +367,8 @@ class HrdControllerTest {
 		var requestJson = new ObjectMapper().writeValueAsString(request);
 		doReturn(redirectUrl).when(relyingPartyService)
 							 .sendResponseWithSelectedProfile(eq(outputServices), eq(request), any(), any());
+		when(redirectOutputService.handleRedirect(any(), any(), eq(redirectUrl)))
+				.thenReturn(redirectUrl);
 		return post(apiSupport.getProfileApi())
 				.content(requestJson)
 				.contentType(MediaType.APPLICATION_JSON_VALUE);

@@ -26,15 +26,19 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import swiss.trustbroker.config.TrustBrokerProperties;
+import swiss.trustbroker.config.dto.AllowPrivateNetworkAccess;
 import swiss.trustbroker.config.dto.ContentSecurityPolicies;
 import swiss.trustbroker.config.dto.FrameOptionsPolicies;
+import swiss.trustbroker.config.dto.NetworkConfig;
 import swiss.trustbroker.config.dto.OidcProperties;
 import swiss.trustbroker.config.dto.RelyingPartyDefinitions;
 import swiss.trustbroker.federation.xmlconfig.OidcClient;
@@ -130,6 +134,43 @@ class OidcTxFilterTest {
 				{ ApiSupport.WEB_RESOURCE_PATH, APP_ORIGIN, APP_REFERER, frameOptions.getFallback(), csp.getFallback(), null },
 				{ "index.html", APP_ORIGIN, APP_REFERER, frameOptions.getFallback(), csp.getFallback(), null }
 		};
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {
+			"false,true,true,ALWAYS,null", // no preflight
+			"true,false,true,ALWAYS,null", // not requested
+			"true,true,false,ALWAYS,true", // network does not matter
+			"true,true,true,NEVER,null", // network does not matter
+			"true,true,false,INTRANET,null", // not on Intranet
+			"true,true,true,INTRANET,true", // not on Intranet
+	}, nullValues = "null")
+	void validateAndSetSecurityHeadersPrivateNetwork(boolean preflight, boolean requestPrivateNetwork, boolean clientOnIntranet,
+			AllowPrivateNetworkAccess allowPrivateNetworkAccess, String expectedAllowPrivateNetwork) {
+		properties.setNetwork(new NetworkConfig());
+		properties.getCors().setAllowPrivateNetworkAccess(allowPrivateNetworkAccess);
+		var request = new MockHttpServletRequest();
+		if (preflight) {
+			request.setMethod(HttpMethod.OPTIONS.name());
+			request.addHeader(HttpHeaders.ORIGIN, "https://localhost:4200");
+			request.addHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, HttpMethod.GET.name());
+		}
+		if (requestPrivateNetwork) {
+			request.addHeader(HeaderBuilder.ACCESS_CONTROL_REQUEST_PRIVATE_NETWORK, HeaderBuilder.ACCESS_CONTROL_PRIVATE_NETWORK);
+		}
+		if (clientOnIntranet) {
+			request.addHeader(properties.getNetwork().getNetworkHeader(), properties.getNetwork().getIntranetNetworkName());
+		}
+		else {
+			request.addHeader(properties.getNetwork().getNetworkHeader(), properties.getNetwork().getInternetNetworkName());
+		}
+		var response = new MockHttpServletResponse();
+
+		filter.validateAndSetSecurityHeaders(
+				request,
+				new OidcTxResponseWrapper(request, response, relyingPartyDefinitions, properties, apiSupport, oidcFrameAncestorHandler),
+				"/");
+		assertThat(response.getHeader(HeaderBuilder.ACCESS_CONTROL_ALLOW_PRIVATE_NETWORK), is(expectedAllowPrivateNetwork));
 	}
 
 }

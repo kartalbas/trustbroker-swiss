@@ -70,6 +70,7 @@ import swiss.trustbroker.federation.xmlconfig.SecurityPolicies;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.homerealmdiscovery.util.DefinitionUtil;
 import swiss.trustbroker.homerealmdiscovery.util.OperationalUtil;
+import swiss.trustbroker.homerealmdiscovery.util.RelyingPartyUtil;
 import swiss.trustbroker.mapping.service.QoaMappingService;
 import swiss.trustbroker.mapping.util.QoaMappingUtil;
 import swiss.trustbroker.oidc.session.OidcSessionSupport;
@@ -132,11 +133,12 @@ public class AssertionConsumerService {
 		var responseAssertions = SamlUtil.getResponseAssertions(responseData.getResponse(), decryptionCredentials, requireEncryptedAssertion);
 		validateResponse(true, responseData, idpStateData, claimsParty, responseAssertions);
 
-		log.debug("CP response assertion validated");
-
 		// internal processing context
 		List<Definition> cpAttributeDefinitions = claimsParty.getAttributesDefinitions();
 		var cpResponse = extractCpResponseDto(response, responseAssertions, cpAttributeDefinitions);
+		RelyingPartyUtil.validateRequiredDefinitions(claimsParty.getAttributesSelection(), cpResponse.getOriginalAttributes());
+		log.debug("CP response assertion validated");
+
 		// Known attributes from config as a default before we offer the opportunity to modify it in the CP/RP BeforeIdm scripts
 		cpResponse.setHomeName(relyingPartySetupService.getHomeNameChecked(claimsParty, responseAssertions, cpResponse));
 		return handleSuccessCpResponse(claimsParty, idpStateData, cpResponse, referrer, response);
@@ -263,7 +265,7 @@ public class AssertionConsumerService {
 		if (claimsParty.getId().equals(expectedIssuer)) {
 			expectedIssuer = claimsParty.getResponseIssuer();
 		}
-		validateBinding(claimsParty, responseData.getBinding(), idpStateData.getRequestedResponseBinding());
+		validateProtocolRestrictions(claimsParty, responseData.getBinding(), idpStateData.getRequestedResponseBinding());
 		var existingRelayState = idpStateData.getRelayState();
 		List<Credential> claimTrustCred = claimsParty.getCpTrustCredential();
 		var expectedAudienceId = claimsParty.getAuthnRequestIssuerId();
@@ -295,12 +297,9 @@ public class AssertionConsumerService {
 		return rpQoa != null ? rpQoa.config() : null;
 	}
 
-	private static void validateBinding(ClaimsParty claimsParty, SamlBinding actualBinding,
+	private void validateProtocolRestrictions(ClaimsParty claimsParty, SamlBinding actualBinding,
 			SamlBinding requestedResponseBinding) {
-		if (!claimsParty.isValidInboundBinding(actualBinding)) {
-			throw new RequestDeniedException(String.format("ClaimsParty cpIssuerId=%s does not support inbound binding=%s",
-					claimsParty.getId(), actualBinding));
-		}
+		SamlValidationUtil.validateProtocolRestrictions(claimsParty, actualBinding, null, trustBrokerProperties, false);
 		if (!actualBinding.compatibleWithRequestedBinding(requestedResponseBinding)) {
 			throw new RequestDeniedException(
 					String.format("ClaimsParty cpIssuerId=%s responded with binding=%s instead of requested protocolBinding=%s",
@@ -698,8 +697,37 @@ public class AssertionConsumerService {
 		uiObjects.setTiles(orderUiObjects(uiObjects.getTiles()));
 		rpRequest.setUiObjects(uiObjects);
 
+		filterNoticeClaimsProviders(uiObjects);
+
 		log.debug("HRD final selecting uiObjects='{}'", uiObjects);
 		return rpRequest;
+	}
+
+	// Filter invalid or disabled IDPs
+	private void filterNoticeClaimsProviders(UiObjects uiObjects) {
+		Map<String, UiObject> tileByName = new HashMap<>();
+		for (UiObject tile : uiObjects.getTiles()) {
+			tileByName.put(tile.getName(), tile);
+		}
+
+		for (UiObject uiObject : uiObjects.getTiles()) {
+			var noticeClaimsProviders = uiObject.getNoticeClaimsProviders();
+
+			if (noticeClaimsProviders == null || noticeClaimsProviders.isEmpty()) {
+				uiObject.setNoticeClaimsProviders(null);
+				continue;
+			}
+
+			List<String> validClaimsProviders = new ArrayList<>();
+			for (String cp : noticeClaimsProviders) {
+				UiObject tile = tileByName.get(cp);
+				if (tile != null && tile.getDisabled() == null) {
+					validClaimsProviders.add(cp);
+				}
+			}
+
+			uiObject.setNoticeClaimsProviders(validClaimsProviders.isEmpty() ? null : validClaimsProviders);
+		}
 	}
 
 	private List<Pair<ClaimsProvider, UiDisableReason>> enrichClaimsProviders(List<ClaimsProvider> claimsProviders,
@@ -831,6 +859,11 @@ public class AssertionConsumerService {
 		// small screen
 		uiObject.setShortcut(claimsProvider.getShortcut());
 		uiObject.setColor(claimsProvider.getColor());
+
+		uiObject.setNoticeMaxAgeSec(claimsProvider.getNoticeMaxAgeSec());
+		if (Boolean.TRUE.equals(claimsProvider.getNoticeEnabled())) {
+			uiObject.setNoticeClaimsProviders(claimsProvider.getNoticeClaimsProviders());
+		}
 
 		return uiObject;
 	}

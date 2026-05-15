@@ -19,8 +19,10 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 import jakarta.persistence.OptimisticLockException;
@@ -32,11 +34,14 @@ import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.transaction.annotation.Transactional;
+import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.tracing.TraceSupport;
 import swiss.trustbroker.common.util.ProcessUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
@@ -61,6 +66,13 @@ public class CustomOAuth2AuthorizationService extends JdbcOAuth2AuthorizationSer
 
 	private static final String DELETE_AUTHORIZATION_BY_CLIENTID_PRINCIPAL = "DELETE FROM " + TOKEN_TABLE
 			+ " WHERE registered_client_id = ? AND principal_name = ?";
+
+	private static final String SAVE_SUBJECT_TOKEN_FOR_TOKEN_EXCHANGE =
+			"INSERT INTO " + TOKEN_TABLE + " (id, registered_client_id, principal_name, authorization_grant_type, " +
+					"authorization_code_value, authorization_code_issued_at, authorization_code_expires_at) " + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+	private static final String COUNT_SUBJECT_TOKENS =
+			"SELECT count(1) FROM " + TOKEN_TABLE + " WHERE authorization_code_value = ? AND authorization_grant_type = ?";
 
 	private static final String COUNT = "SELECT count(1) from " + TOKEN_TABLE;
 
@@ -118,6 +130,44 @@ public class CustomOAuth2AuthorizationService extends JdbcOAuth2AuthorizationSer
 		finally {
 			resilientOps.remove();
 		}
+	}
+
+	@Transactional
+	public void saveTokenExchangeSubjectToken(String subjectToken, String clientId, String principalName, Timestamp iat, Timestamp expiration) {
+		var start = clock.instant();
+		if (expiration == null) {
+			// Save the token for 30 days to prevent the reaper from dropping it
+			expiration = Timestamp.from(start.plus(30, ChronoUnit.DAYS));
+		}
+		var id = UUID.randomUUID().toString();
+		try {
+			List<SqlParameterValue> paramsList = new ArrayList<>();
+			paramsList.add(new SqlParameterValue(Types.CHAR, id));
+			paramsList.add(new SqlParameterValue(Types.CHAR, clientId));
+			paramsList.add(new SqlParameterValue(Types.CHAR, principalName));
+			paramsList.add(new SqlParameterValue(Types.CHAR, AuthorizationGrantType.TOKEN_EXCHANGE.getValue()));
+			paramsList.add(new SqlParameterValue(Types.LONGVARCHAR, subjectToken));
+			paramsList.add(new SqlParameterValue(Types.TIMESTAMP, iat));
+			paramsList.add(new SqlParameterValue(Types.TIMESTAMP, expiration));
+			SqlParameterValue[] parameters = new SqlParameterValue[paramsList.size()];
+			paramsList.toArray(parameters);
+
+			PreparedStatementSetter pss = new ArgumentPreparedStatementSetter(parameters);
+			int inserted = jdbcOperations.update(SAVE_SUBJECT_TOKEN_FOR_TOKEN_EXCHANGE, pss);
+			if (inserted != 1) {
+				log.error("Did not save token exchange for client={}", clientId);
+			}
+		}
+		catch (Exception ex) {
+			globalExceptionHandler.logException(ex);
+			throw new TechnicalException(String.format("Could not save subject_token %s", subjectToken), ex);
+		}
+	}
+
+	@Transactional
+	public Integer getSubjectTokenCount(String subjectToken) {
+		return jdbcOperations.queryForObject(
+				COUNT_SUBJECT_TOKENS, Integer.class, subjectToken, AuthorizationGrantType.TOKEN_EXCHANGE.getValue());
 	}
 
 	// retry flag implements a CircuitBreaker retrying if we do not yet find any data (galera master/master read many problem)

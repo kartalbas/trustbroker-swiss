@@ -31,6 +31,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import swiss.trustbroker.common.config.RegexNameValue;
+import swiss.trustbroker.common.util.WebUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.util.ApiSupport;
 import swiss.trustbroker.util.WebSupport;
@@ -78,8 +79,6 @@ public class AccessFilter implements Filter {
 				+ "/app|/app/.*"
 				// APIs (/adfs/ls included below)
 				+ "|/api/v1/.*"
-				// Web resources
-				+ "|/resource/v1/.*"
 				// configured endpoints:
 				+ "|" + perimeterPathsRegex
 				// default SAML endpoints
@@ -110,7 +109,7 @@ public class AccessFilter implements Filter {
 			throws IOException, ServletException {
 		var httpRequest = (HttpServletRequest) request;
 		var httpResponse = (HttpServletResponse) response;
-		var path = httpRequest.getRequestURI();
+		var path = WebUtil.urlDecodeValue(httpRequest.getRequestURI());
 
 		// firewall
 		if (internalAllowedPaths.matcher(path).matches()) {

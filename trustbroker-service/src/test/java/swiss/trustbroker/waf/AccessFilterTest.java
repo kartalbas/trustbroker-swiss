@@ -95,7 +95,7 @@ class AccessFilterTest {
 			"/favicon.ico,200",
 			"/runtime.a26ed6ea895c0fcf5af2.js,200",
 			"/styles.58751f05ac77ca4b10bf.css,200",
-			"/FrutigerNeueW02-Regular.793e11078fdc9cd76c85.woff2,200",
+			"/Regular.793e11078fdc9cd76c85.woff2,200",
 			"/fa-solid-900.eeccf4f66002c6f2ba24.woff,200",
 			"/fa-solid-900.be9ee23c0c6390141475.ttf,200",
 			"/fa-regular-400.4689f52cc96215721344.svg,200",

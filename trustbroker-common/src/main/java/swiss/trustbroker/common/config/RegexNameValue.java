@@ -15,6 +15,7 @@
 
 package swiss.trustbroker.common.config;
 
+import java.util.Map;
 import java.util.regex.Pattern;
 
 import lombok.AccessLevel;
@@ -68,5 +69,12 @@ public class RegexNameValue {
 		else {
 			pattern = Pattern.compile(regex);
 		}
+	}
+
+	public static RegexNameValue of(Map<String, String> data) {
+		if (data == null) {
+			return new RegexNameValue();
+		}
+		return new RegexNameValue(data.get("regex"), data.get("name"), data.get("value"));
 	}
 }

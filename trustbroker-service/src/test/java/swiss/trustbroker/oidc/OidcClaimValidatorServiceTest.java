@@ -61,7 +61,7 @@ class OidcClaimValidatorServiceTest {
 				{ new Date(0), true },
 				// negative constant
 				{ new Date(-SecurityChecks.TOLERANCE_NOT_BEFORE_SEC), true },
-				{ new Date(1 - SecurityChecks.TOLERANCE_NOT_BEFORE_SEC), false }
+				{ new Date((1 - SecurityChecks.TOLERANCE_NOT_BEFORE_SEC) * 1000), false }
 		};
 	}
 
@@ -77,7 +77,7 @@ class OidcClaimValidatorServiceTest {
 				{ new Date(0), true },
 				// positive constant
 				{ new Date(1 - SecurityChecks.TOLERANCE_NOT_AFTER_SEC), true },
-				{ new Date(-SecurityChecks.TOLERANCE_NOT_AFTER_SEC), false }
+				{ new Date(-SecurityChecks.TOLERANCE_NOT_AFTER_SEC * 1000), false }
 		};
 	}
 
@@ -127,15 +127,15 @@ class OidcClaimValidatorServiceTest {
 						givenClaims(OidcMockTestData.JWT_ID, "wong_iss", new Date(0), new Date(0), new Date(0),
 						OidcMockTestData.SUBJECT, OidcMockTestData.CLIENT_ID, null, OidcMockTestData.NONCE) },
 				{ null, OidcMockTestData.NONCE,
-						givenClaims(OidcMockTestData.JWT_ID, OidcMockTestData.CP_ISSUER_ID, new Date(1 - SecurityChecks.TOLERANCE_NOT_BEFORE_SEC),
+						givenClaims(OidcMockTestData.JWT_ID, OidcMockTestData.CP_ISSUER_ID, new Date((1 - SecurityChecks.TOLERANCE_NOT_BEFORE_SEC) * 1000),
 						new Date(0), new Date(0), OidcMockTestData.SUBJECT, OidcMockTestData.CLIENT_ID,null, OidcMockTestData.NONCE) },
 				{ null, OidcMockTestData.NONCE,
 						givenClaims(OidcMockTestData.JWT_ID, OidcMockTestData.CP_ISSUER_ID, new Date(0),
-						new Date(1 - SecurityChecks.TOLERANCE_NOT_BEFORE_SEC), new Date(0),
+						new Date((1 - SecurityChecks.TOLERANCE_NOT_BEFORE_SEC) * 1000), new Date(0),
 						OidcMockTestData.SUBJECT, OidcMockTestData.CLIENT_ID,null, OidcMockTestData.NONCE) },
 				{ null, OidcMockTestData.NONCE,
 						givenClaims(OidcMockTestData.JWT_ID, OidcMockTestData.CP_ISSUER_ID, new Date(0), new Date(0),
-						new Date(-SecurityChecks.TOLERANCE_NOT_AFTER_SEC),
+						new Date(-SecurityChecks.TOLERANCE_NOT_AFTER_SEC * 1000),
 						OidcMockTestData.SUBJECT, OidcMockTestData.CLIENT_ID,null, OidcMockTestData.NONCE) },
 				{ null, OidcMockTestData.NONCE,
 						givenClaims(OidcMockTestData.JWT_ID, OidcMockTestData.CP_ISSUER_ID, new Date(0), new Date(0), new Date(0),

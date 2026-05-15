@@ -28,6 +28,7 @@ import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.saml.util.CredentialReader;
 import swiss.trustbroker.common.setup.service.GitService;
 import swiss.trustbroker.common.util.DirectoryUtil;
+import swiss.trustbroker.federation.xmlconfig.OidcClient;
 import swiss.trustbroker.federation.xmlconfig.SignerKeystore;
 import swiss.trustbroker.federation.xmlconfig.SignerStore;
 import swiss.trustbroker.federation.xmlconfig.SignerTruststore;
@@ -66,7 +67,7 @@ public class CredentialService {
 	}
 
 	private void resolveStorePaths(SignerStore store, String subPath) {
-		var basePath = resolvePath(store.getCertPath(), subPath);
+		var basePath = resolveBasePath(store.getCertPath(), subPath);
 		var resolvedCertPath = new File(basePath, store.getCertPath()).getPath();
 		store.setResolvedCertPath(resolvedCertPath);
 		if (store.getKeyPath() != null) {
@@ -75,8 +76,14 @@ public class CredentialService {
 		}
 	}
 
-	private String resolvePath(String certPath, String subPath) {
-		// see ReferenceHolder for the order
+	// subPath allows to resolve the certificate file in a RP or CP sub-directory
+	private String resolveBasePath(String certPath, String subPath) {
+		// 0. allow defining absolute path to refer to K8S secrets outside trustbroker-inventories
+		var certFile = new File(certPath);
+		if (certFile.isAbsolute() && certFile.exists()) {
+			return "";
+		}
+		// relative in trustbroker home
 		var configPath = trustBrokerProperties.getConfigurationPath();
 		if (StringUtils.isNotEmpty(subPath)) {
 			// 1. relative path in definition
@@ -95,7 +102,7 @@ public class CredentialService {
 		if (certificateExists(certPath, path)) {
 			return path;
 		}
-		throw new TechnicalException(String.format("Failed to load cert='%s' in path='%s' or subPath='%s'", certPath, path, subPath));
+		throw new TechnicalException(String.format("Failed to load cert='%s' from path='%s' or subPath='%s'", certPath, path, subPath));
 	}
 
 	private static boolean certificateExists(String certPath, String path) {
@@ -119,5 +126,26 @@ public class CredentialService {
 		resolveStorePaths(store, subPath);
 		return CredentialReader.readTrustCredentials(
 				store.getResolvedCertPath(), store.getCertType(), store.getPassword(), store.getAlias());
+	}
+
+	public void checkAndLoadJWKs(String urn, String subPath, List<OidcClient> oidcClients) {
+		if (oidcClients == null || oidcClients.isEmpty()) {
+			return;
+		}
+		log.debug("Loading JWKs for oidcClients with urn={}", urn);
+		for (OidcClient oidcClient : oidcClients) {
+			var certificates = oidcClient.getCertificates();
+			var protocolEndpoints = oidcClient.getProtocolEndpoints();
+			// Do not load JWK from cert if the MetadataUrl defined
+			if ((protocolEndpoints == null || protocolEndpoints.getMetadataUrl() == null) && certificates != null
+					&& certificates.getSignerTruststore() != null) {
+				var signerTruststore = certificates.getSignerTruststore();
+				checkCertPath(signerTruststore.getCertPath(), urn);
+				resolveStorePaths(signerTruststore, subPath);
+				var jwks = CredentialReader.loadJwks(signerTruststore.getResolvedCertPath(), signerTruststore.getCertType(),
+						signerTruststore.getPassword(), signerTruststore.getAlias());
+				oidcClient.setCpJwks(jwks);
+			}
+		}
 	}
 }

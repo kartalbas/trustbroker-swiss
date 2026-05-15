@@ -59,4 +59,14 @@ public class CorsPolicies {
 	 */
 	private List<String> allowedHeaders;
 
+	/**
+	 * Private network access permitted.
+	 * <br/>
+	 * Default: NEVER
+	 *
+	 * @since 1.14.0
+	 * @see <a href="https://wicg.github.io/private-network-access/">Private Network Access</a>
+	 */
+	@Builder.Default
+	private AllowPrivateNetworkAccess allowPrivateNetworkAccess = AllowPrivateNetworkAccess.NEVER;
 }

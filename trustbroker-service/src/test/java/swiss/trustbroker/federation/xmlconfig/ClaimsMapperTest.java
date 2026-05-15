@@ -37,6 +37,7 @@ class ClaimsMapperTest {
 	@MethodSource
 	void mapObjectTimeEpoch(Object input, Object expected) {
 		assertThat(ClaimsMapper.TIME_EPOCH.map(input), is(expected));
+		assertThat(ClaimsMapper.TIME_EPOCH.map(ClaimsMapper.TIME_EPOCH.map(input)), is(expected)); // re-entrant
 	}
 
 	static Object[][] mapObjectTimeEpoch() {

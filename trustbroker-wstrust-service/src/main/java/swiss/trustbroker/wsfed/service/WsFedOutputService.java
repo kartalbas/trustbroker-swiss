@@ -115,11 +115,13 @@ public class WsFedOutputService implements OutputService {
 			String requestRelayState, RequestSecurityTokenResponse requestSecurityTokenResponse, String action) {
 		var result = SamlIoUtil.marshalXmlObjectToString(requestSecurityTokenResponse);
 		var resultEncoded = HTMLEncoder.encodeForHTMLAttribute(result);
+		var requestRelayStateEncoded = HTMLEncoder.encodeForHTMLAttribute(requestRelayState);
+		var destinationEncoded =  HTMLEncoder.encodeForHTMLAttribute(destination);
 		Map<String, String> contextValues = new HashMap<>();
 		contextValues.put(VelocityUtil.VELOCITY_PARAM_XTB_ACTION, action);
-		contextValues.put(VelocityUtil.VELOCITY_PARAM_XTB_CONTEXT, requestRelayState);
+		contextValues.put(VelocityUtil.VELOCITY_PARAM_XTB_CONTEXT, requestRelayStateEncoded);
 		contextValues.put(VelocityUtil.VELOCITY_PARAM_XTB_RESULT, resultEncoded);
-		contextValues.put(VelocityUtil.VELOCITY_PARAM_ACTION, destination);
+		contextValues.put(VelocityUtil.VELOCITY_PARAM_ACTION, destinationEncoded);
 		VelocityUtil.renderTemplate(velocityEngine, httpServletResponse, VelocityUtil.VELOCITY_WS_FED_TEMPLATE_ID, contextValues);
 	}
 }

@@ -52,6 +52,7 @@ import swiss.trustbroker.federation.xmlconfig.Flow;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
 import swiss.trustbroker.homerealmdiscovery.dto.ProfileRequest;
 import swiss.trustbroker.homerealmdiscovery.dto.SupportInfo;
+import swiss.trustbroker.homerealmdiscovery.service.RedirectOutputService;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.homerealmdiscovery.util.OperationalUtil;
 import swiss.trustbroker.homerealmdiscovery.util.RelyingPartyUtil;
@@ -96,6 +97,8 @@ public class HrdController {
 
 	private final List<OutputService> outputServices;
 
+	private final RedirectOutputService redirectOutputService;
+
 	// Return the list of CP issuers we need to render
 	// once the FE has been adapted, id and stateDataByAuthnReq can be changed to required
 	@GetMapping(path = ApiSupport.HRD_RP_URL + "/{issuer}/tiles")
@@ -108,9 +111,12 @@ public class HrdController {
 		var referer = WebUtil.getReferer(httpRequest);
 
 		// state for current AuthnRequest must exist
-		var stateDataByAuthnReq = stateCacheService.findBySpIdResilient(rpAuthnRequestId, this.getClass().getSimpleName());
+		StateData stateDataByAuthnReq = null;
+		if (rpAuthnRequestId != null) {
+			stateDataByAuthnReq = stateCacheService.findRequiredBySpId(rpAuthnRequestId, this.getClass().getSimpleName());
+		}
 		var rpRequest = assertionConsumerService.renderUi(rpIssuer, referer, null, httpRequest, null,
-				stateDataByAuthnReq.orElse(null));
+				stateDataByAuthnReq);
 		return rpRequest.getUiObjects();
 	}
 
@@ -139,10 +145,12 @@ public class HrdController {
 		var stateData = stateCacheService.find(id, this.getClass().getSimpleName());
 		var relyingParty = relyingPartySetupService.getRelyingPartyByIssuerIdOrReferrer(stateData.getRpIssuer(), null);
 		var profileSelection = relyingParty != null ? relyingParty.getProfileSelection() : null;
+		var hasAccessRequest = relyingParty != null && relyingParty.hasAccessRequest();
 		var profileSelectionData = ProfileSelectionData.builder()
 													   .profileSelectionProperties(profileSelection)
 													   .selectedProfileId(id)
 													   .applicationName(stateData.getRpApplicationName())
+													   .ignoreEmptyProfiles(!hasAccessRequest)
 													   .build();
 		final var profileSelectionService = relyingPartyService.getProfileSelectionService(relyingParty != null ? relyingParty.getIdmLookup() : null);
 		return profileSelectionService.buildProfileResponse(profileSelectionData, stateData.getCpResponse());
@@ -153,6 +161,7 @@ public class HrdController {
 			@RequestBody ProfileRequest profileRequest) {
 		var redirectUrl = relyingPartyService.sendResponseWithSelectedProfile(outputServices,
 				profileRequest, request, response);
+		redirectUrl = redirectOutputService.handleRedirect(request, response, redirectUrl);
 		return WebSupport.getViewRedirectResponse(redirectUrl);
 	}
 

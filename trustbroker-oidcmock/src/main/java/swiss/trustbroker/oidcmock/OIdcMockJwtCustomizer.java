@@ -122,9 +122,15 @@ public class OIdcMockJwtCustomizer implements OAuth2TokenCustomizer<JwtEncodingC
 	}
 
 	private void addConfigClaims(String clientId, Map<String, Object> customClaims) {
-		Map<String, String> config = oidcMockProperties.getClients().get(clientId);
+		Map<String, List<String>> config = oidcMockProperties.getClients().get(clientId);
 		if (config != null) {
-			customClaims.putAll(config);
+			config.forEach((key, valueList) -> {
+				if (valueList == null || valueList.isEmpty()) {
+					return;
+				}
+				Object claimValue = valueList.size() == 1 ? valueList.get(0) : valueList;
+				customClaims.put(key, claimValue);
+			});
 		}
 	}
 

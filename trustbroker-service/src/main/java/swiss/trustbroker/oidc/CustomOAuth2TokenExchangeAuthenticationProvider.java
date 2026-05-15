@@ -26,39 +26,34 @@
 package swiss.trustbroker.oidc;
 
 import static org.springframework.security.oauth2.core.OAuth2ErrorCodes.INVALID_REQUEST;
-import static org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames.ERROR_URI;
 
 import java.security.Principal;
+import java.sql.Timestamp;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
-import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.JWTClaimsSet;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.opensaml.saml.saml2.core.Assertion;
-import org.opensaml.saml.saml2.core.Attribute;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
-import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
-import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.core.OAuth2Token;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
-import org.springframework.security.oauth2.core.oidc.IdTokenClaimNames;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtException;
@@ -67,6 +62,7 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AccessTokenAuthenticationToken;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationGrantAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenExchangeActor;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenExchangeAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenExchangeCompositeAuthenticationToken;
@@ -94,6 +90,7 @@ import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.mapping.dto.QoaConfig;
 import swiss.trustbroker.mapping.service.QoaMappingService;
 import swiss.trustbroker.oidc.cache.service.OidcMetadataCacheService;
+import swiss.trustbroker.oidc.pkce.PublicClientAuthenticationToken;
 import swiss.trustbroker.oidc.session.HttpExchangeSupport;
 import swiss.trustbroker.saml.service.RelyingPartyService;
 import swiss.trustbroker.saml.util.AssertionValidator;
@@ -121,6 +118,8 @@ import swiss.trustbroker.saml.util.AssertionValidator;
 @Slf4j
 public class CustomOAuth2TokenExchangeAuthenticationProvider implements AuthenticationProvider {
 
+	private static final String ERROR_URI = "https://datatracker.ietf.org/doc/html/rfc6749#section-5.2";
+
 	private static final String JWT_TOKEN_TYPE_VALUE = "urn:ietf:params:oauth:token-type:jwt";
 
 	private static final String ACCESS_TOKEN_TYPE_VALUE = "urn:ietf:params:oauth:token-type:access_token";
@@ -129,15 +128,23 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 
 	private static final String MAY_ACT = "may_act";
 
-	private static final String REQUEST_SCOPES = "scopes";
+	private static final String REQUEST_SCOPE = "request_scope";
 
-	private static final String REQUEST_AUDIENCES = "audiences";
+	private static final String REQUEST_AUDIENCE = "audience";
 
-	private static final String REQUEST_RESOURCES = "resources";
+	private static final String REQUEST_RESOURCE = "resource";
+
+	private static final String REQUEST_SUBJECT_TOKEN = "subject_token";
+
+	private static final String REQUEST_SUBJECT_TOKEN_TYPE = "subject_token_type";
+
+	private static final String REQUEST_REQUESTED_TOKEN_TYPE = "requested_token_type";
+
+	private static final String REQUEST_ADDITIONAL_PARAMS = "requested_additional_params";
 
 	private final ClientConfigInMemoryRepository registeredClientRepository;
 
-	private final OAuth2AuthorizationService authorizationService;
+	private final CustomOAuth2AuthorizationService authorizationService;
 
 	private final OidcMetadataCacheService oidcMetadataCacheService;
 
@@ -156,43 +163,47 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 	@Override
 	public Authentication authenticate(Authentication authentication) throws AuthenticationException {
 		var tokenExchangeAuthentication = (OAuth2TokenExchangeAuthenticationToken) authentication;
+
 		var clientPrincipal = CustomOAuth2AuthenticationProviderUtils.getAuthenticatedClientElseThrowInvalidClient(tokenExchangeAuthentication);
 		var registeredClientId = OidcAuthenticationUtil.getClientIdFromPrincipal(clientPrincipal);
 		var registeredClient = this.registeredClientRepository.findByClientId(registeredClientId);
 
+		validateRegisteredClient(registeredClient, registeredClientId);
+
 		// RP configuration
 		var relyingParty = relyingPartyDefinitions.getRelyingPartyByOidcClientId(registeredClientId, registeredClientId, trustBrokerProperties, false);
-		var rpOidcClient = relyingPartyDefinitions.getOidcClientConfigById(registeredClientId, trustBrokerProperties);
+		var optionalRpOidcClient = relyingPartyDefinitions.getOidcClientConfigById(registeredClientId, trustBrokerProperties);
+		var rpOidcClient = validateRpClient(optionalRpOidcClient.orElse(null), registeredClientId);
 
-		validateInputParams(rpOidcClient, registeredClient, registeredClientId, tokenExchangeAuthentication);
+		validateRpForPKCEAuthentication(clientPrincipal, rpOidcClient);
+		OidcValidator.validateInputParams(rpOidcClient, registeredClient, registeredClientId, tokenExchangeAuthentication, ERROR_URI);
 
+		// CP configuration
 		var subjectToken = tokenExchangeAuthentication.getSubjectToken();
 		var iss = OidcUtil.getClaimFromJwtToken(subjectToken, OidcUtil.OIDC_ISSUER);
 		var claimsParty = relyingPartySetupService.getClaimsProviderSetupByIssuerId(iss, iss, false);
 
-		if (claimsParty == null) {
-			log.error("Missing OIDC client pair for iss={}", iss);
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_CLIENT);
-		}
+		validateClaimsParty(claimsParty, iss);
 		var cpOidcConfig = claimsParty.getSingleOidcClient();
+		OidcValidator.validateClaimsProviderMapping(relyingParty, claimsParty, ERROR_URI);
 
-		validateClaimsProviderMapping(relyingParty, claimsParty);
-
-		var subjectAuthorization = this.authorizationService.findByToken(tokenExchangeAuthentication.getSubjectToken(), OAuth2TokenType.ACCESS_TOKEN);
-		Map<String, Object> subjectTokenClaims;
+		var subjectAuthorization = this.authorizationService.findByToken(subjectToken, OAuth2TokenType.ACCESS_TOKEN);
 		var subjectTokenType = tokenExchangeAuthentication.getSubjectTokenType();
+
+		OAuth2Authorization actorAuthorization = null;
+		Map<String, Object> subjectTokenClaims;
 		List<String> subjectAcrs;
 		JWTClaimsSet jwtClaimsSet = null;
 		if (subjectAuthorization == null && trustBrokerProperties.getOidc().isExternalTokenExchangeEnabled()) {
 			// Validate external token
 			try {
-				if (SAML2_TOKEN_TYPE_VALUE.equals(subjectTokenType)) {
+				if (SAML2_TOKEN_TYPE_VALUE.equals(subjectTokenType) && trustBrokerProperties.getOidc().isSaml2TokenExchangeEnabled()) {
 					Assertion assertion = SamlIoUtil.getAssertionFromSubjectToken(subjectToken);
 
 					AssertionValidator.validateTokenAssertion(claimsParty, assertion, trustBrokerProperties);
 
 					var subjectValue = validateAndGetSubject(assertion, registeredClientId);
-					subjectTokenClaims = extractSamlClaims(assertion);
+					subjectTokenClaims = SamlUtil.extractAttributesFromAssertion(assertion);
 
 					subjectAuthorization = OAuth2Authorization.withRegisteredClient(registeredClient)
 															  .principalName(subjectValue)
@@ -202,18 +213,13 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 															  .build();
 				}
 				else {
-					if (!isValidTokenType(subjectTokenType)) {
-						throw new OAuth2AuthenticationException(INVALID_REQUEST);
-					}
+					validateTokenType(subjectTokenType);
+
 					// subject_token validating with CP config
-					var key = getJWKForClaimParty(claimsParty);
+					var key = oidcMetadataCacheService.jwtKeySupplier(claimsParty, cpOidcConfig);
 					jwtClaimsSet = OidcUtil.verifyJwtToken(subjectToken, key, claimsParty.getId());
-					if (jwtClaimsSet == null) {
-						var error = new OAuth2Error(INVALID_REQUEST,
-						String.format("Claims are null in token for client %s", claimsParty.getId()), OidcExceptionHelper.ERROR_URI);
-						throw new OAuth2AuthenticationException(error);
-					}
-					subjectTokenClaims = jwtClaimsSet.getClaims();
+					validateClaimSet(jwtClaimsSet, claimsParty);
+					subjectTokenClaims = new HashMap<>(jwtClaimsSet.getClaims());
 
 					subjectAuthorization = OAuth2Authorization.withRegisteredClient(registeredClient)
 															  .principalName(jwtClaimsSet.getSubject())
@@ -224,53 +230,61 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 				}
 			}
 			catch (JwtException ex) {
-				log.error(ex.getMessage(), ex);
-				throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
+				CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_GRANT, ex.getMessage(), ERROR_URI);
+				return null;
 			}
 		}
 		else if (subjectAuthorization != null) {
-			OAuth2Authorization.Token<OAuth2Token> subjectAuthorizationToken = subjectAuthorization.getToken(tokenExchangeAuthentication.getSubjectToken());
+			OAuth2Authorization.Token<OAuth2Token> subjectAuthorizationToken = subjectAuthorization.getToken(subjectToken);
 			validateTokenAuthorization(subjectAuthorizationToken, subjectTokenType);
-			if (subjectAuthorizationToken == null) {
-				log.error("SubjectAuthorization token is null for client {}", claimsParty.getId());
-				throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_CLIENT);
+			if (subjectAuthorizationToken == null || subjectAuthorizationToken.getClaims() == null) {
+				var message = String.format("SubjectAuthorization token is null for client %s", claimsParty.getId());
+				CustomOAuth2EndpointUtils.throwErrorWithMessage(INVALID_REQUEST, message, ERROR_URI);
+				return null;
 			}
-			subjectTokenClaims = subjectAuthorizationToken.getClaims();
+			subjectTokenClaims = new HashMap<>(subjectAuthorizationToken.getClaims());
 			jwtClaimsSet = OidcUtil.parseJwtClaims(subjectTokenClaims);
-		} else {
-			log.error("Token exchange disabled for external token exchange clientId={}", registeredClientId);
-			throw new OAuth2AuthenticationException(INVALID_REQUEST);
+
+			// As per https://datatracker.ietf.org/doc/html/rfc8693#section-4.4,
+			// The may_act claim makes a statement that one party is authorized to
+			// become the actor and act on behalf of another party.
+			Map<String, Object> authorizedActorClaims = getActorClaims(subjectTokenClaims);
+
+			// Check for Actor token
+			actorAuthorization = getOAuth2AuthorizationWithActorToken(tokenExchangeAuthentication, authorizedActorClaims);
+
+		}
+		else {
+			var message = String.format("Token exchange disabled with external tokens clientId=%s", registeredClientId);
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_REQUEST, message, ERROR_URI);
+			return null;
 		}
 
 		if (jwtClaimsSet == null) {
-			var error = new OAuth2Error(INVALID_REQUEST,
-					String.format("Claims are null in token for client %s", claimsParty.getId()), OidcExceptionHelper.ERROR_URI);
-			throw new OAuth2AuthenticationException(error);
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_TOKEN, "Missing subject claim", ERROR_URI);
+			return null;
 		}
 
-		OidcClaimValidatorService.validateSubAudAzp(jwtClaimsSet, claimsParty.getId(), cpOidcConfig);
+		OidcValidator.validateSubjectTokenIatExpNbf(jwtClaimsSet, rpOidcClient, trustBrokerProperties, ERROR_URI);
+
+		verifySubjectTokenUniqueOrSave(subjectToken, jwtClaimsSet, registeredClientId, clientPrincipal.getName(), rpOidcClient, trustBrokerProperties);
+
+		validateClaimSet(jwtClaimsSet, claimsParty);
+
+		OidcClaimValidatorService.validateSubAudAzp(jwtClaimsSet, relyingParty.getId(), rpOidcClient, OAuth2ParameterNames.SUBJECT_TOKEN);
 		subjectAcrs = OidcClaimValidatorService.validateAcrs(jwtClaimsSet, claimsParty, cpOidcConfig, trustBrokerProperties);
 
 		if (subjectAuthorization.getAttribute(Principal.class.getName()) == null) {
 			// As per https://datatracker.ietf.org/doc/html/rfc8693#section-1.1,
 			// we require a principal to be available via the subject_token for
 			// impersonation or delegation use cases.
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
+			CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_GRANT, "subjectAuthorization", ERROR_URI);
 		}
-
-		// As per https://datatracker.ietf.org/doc/html/rfc8693#section-4.4,
-		// The may_act claim makes a statement that one party is authorized to
-		// become the actor and act on behalf of another party.
-		Map<String, Object> authorizedActorClaims = null;
-		authorizedActorClaims = getActorClaims(subjectTokenClaims, authorizedActorClaims);
-
-		// Check for Actor token
-		OAuth2Authorization actorAuthorization = getOAuth2AuthorizationWithActorToken(tokenExchangeAuthentication, authorizedActorClaims);
 
 		// Validate params
 		var requestParams = validateRequestParamAndRetrieveScopes(tokenExchangeAuthentication, registeredClient, subjectAuthorization,
-				cpOidcConfig, subjectTokenClaims);
-		var authorizedScopes = requestParams.get(REQUEST_SCOPES);
+				rpOidcClient);
+		var authorizedScopes = requestParams.get(REQUEST_SCOPE);
 
 		// Verify the DPoP Proof (if available)
 		Jwt dPoPProof = CustomDPoPProofVerifier.verifyIfAvailable(tokenExchangeAuthentication);
@@ -280,12 +294,15 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 		}
 
 		Authentication principal = getPrincipal(subjectAuthorization, actorAuthorization);
-		Map<String, Object> tokenData = relyingPartyService.getTokenExchangeUserData(subjectTokenClaims, jwtClaimsSet, relyingParty, claimsParty, rpOidcClient.get(), authorizedScopes);
-		addAuthTimeToToken(tokenData, subjectTokenClaims);
+		var cpOriginalAttributes = relyingPartyService.extractAndValidateCpAttrs(jwtClaimsSet, requestParams, claimsParty);
+		var tokenData = relyingPartyService.getTokenExchangeUserData(subjectTokenClaims, cpOriginalAttributes, relyingParty, claimsParty, rpOidcClient, authorizedScopes, subjectAcrs);
 		isValidTokenData(tokenData, relyingParty, claimsParty);
-		addSidToToken(tokenData);
-		addAcrToToken(tokenData, subjectAcrs, claimsParty, relyingParty, cpOidcConfig, rpOidcClient.get());
-		addDPopClaim(tokenData, dPoPProof);
+		JwtUtil.addAuthTimeToClaimMap(tokenData, subjectTokenClaims);
+		JwtUtil.addSidToClaimMap(tokenData, HttpExchangeSupport.getOrCreateSessionId());
+		addAcrToToken(tokenData, subjectAcrs, claimsParty, relyingParty, cpOidcConfig, rpOidcClient);
+		JwtUtil.addDPopClaimToClaimMap(tokenData, dPoPProof);
+		addAudToToken(tokenData, requestParams, registeredClientId);
+		addAzpToken(tokenData, rpOidcClient);
 
 		var authorizationBuilder = OAuth2Authorization.withRegisteredClient(registeredClient)
 													  .principalName(subjectAuthorization.getPrincipalName())
@@ -295,35 +312,98 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 
 		var tokenContextBuilder = generateTokenContext(registeredClient, principal, authorizedScopes, tokenExchangeAuthentication, dPoPProof);
 
-		var tokens = generateAndSaveTokens(authorizationBuilder, tokenExchangeAuthentication, tokenContextBuilder, relyingParty, tokenData, rpOidcClient.get());
+		var tokens = generateAndSaveTokens(authorizationBuilder, tokenExchangeAuthentication, tokenContextBuilder, relyingParty, tokenData, rpOidcClient);
 
 		Map<String, Object> additionalParameters = new HashMap<>();
-		additionalParameters.put(OAuth2ParameterNames.ISSUED_TOKEN_TYPE, tokenExchangeAuthentication.getRequestedTokenType());
+		additionalParameters.put(OAuth2ParameterNames.ISSUED_TOKEN_TYPE, subjectTokenType);
 
 		return new OAuth2AccessTokenAuthenticationToken(registeredClient, clientPrincipal,
-				(OAuth2AccessToken) tokens.get(OidcUtil.TOKEN_RESPONSE_ACCESS_TOKEN), (OAuth2RefreshToken) tokens.get(OidcUtil.TOKEN_RESPONSE_REFRESH_TOKEN), additionalParameters);
+				(OAuth2AccessToken) tokens.get(OidcUtil.TOKEN_RESPONSE_ACCESS_TOKEN), (OAuth2RefreshToken)
+				tokens.get(OidcUtil.TOKEN_RESPONSE_REFRESH_TOKEN), additionalParameters);
 	}
 
-	private void addDPopClaim( Map<String, Object> tokenData, Jwt dPoPProof) {
-		if (dPoPProof == null) {
-			return;
-		}
-		tokenData.put(OidcUtil.OIDC_TOKEN_CNF, JwtUtil.getCnfValueFromHeader(dPoPProof.getHeaders()));
+	private void addAzpToken(Map<String, Object> tokenData, OidcClient rpOidcClient) {
+		// Public client UserinfoAuthentication reference
+		tokenData.putIfAbsent(OidcUtil.OIDC_AUTHORIZED_PARTY, rpOidcClient.getId());
 	}
 
-	private void validateClaimsProviderMapping(RelyingParty relyingParty, ClaimsParty claimsParty) {
-		var claimsProviderMappings = relyingParty.getClaimsProviderMappings();
-		if (claimsProviderMappings == null) {
-			log.error("Missing ClaimsProviderMappings for RelyingParty={}", relyingParty.getId());
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.UNAUTHORIZED_CLIENT);
+	private void addAudToToken(Map<String, Object> tokenData, Map<String, Set<String>> requestParams, String clientId) {
+		Set<String> audiences = requestParams.get(REQUEST_AUDIENCE);
+		if (audiences != null) {
+			Set<String> audClaims = new HashSet<>();
+			audClaims.add(clientId);
+			audClaims.addAll(audiences);
+			tokenData.put(OidcUtil.OIDC_AUDIENCE, audClaims);
 		}
-		var claimsProviderList = claimsProviderMappings.getClaimsProviderList();
-		var rpCp = claimsProviderList.stream()
-									 .filter(claimsProvider -> claimsProvider.getId().equals(claimsParty.getId()))
-									 .findAny();
-		if (rpCp.isEmpty()) {
-			log.error("Missing ClaimsProviderMapping for ClaimParty={} in RelyingParty={}", claimsParty.getId(), relyingParty.getId());
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.UNAUTHORIZED_CLIENT);
+	}
+
+	private void verifySubjectTokenUniqueOrSave(String subjectToken, JWTClaimsSet jwtClaimsSet, String clientId,
+												String clientPrincipalName, OidcClient oidcClient, TrustBrokerProperties trustBrokerProperties) {
+		var subjectTokenCount = this.authorizationService.getSubjectTokenCount(subjectToken);
+		var oidcSecurityPolicies = oidcClient.getOidcSecurityPolicies();
+		var expirationTime = jwtClaimsSet.getExpirationTime();
+		Timestamp expirationTimeTimeStep = null;
+		var subjectTokenNotOnOrAfterToleranceSec = oidcSecurityPolicies.getSubjectTokenNotOnOrAfterToleranceSec();
+		var notOnOrAfterToleranceSec = subjectTokenNotOnOrAfterToleranceSec != null ? subjectTokenNotOnOrAfterToleranceSec : trustBrokerProperties.getSecurity().getNotOnOrAfterToleranceSec();
+		var subjectTokenNotOnOrAfterToleranceMill = notOnOrAfterToleranceSec * 1000;
+		if (expirationTime != null) {
+			expirationTimeTimeStep = new Timestamp(expirationTime.getTime() + subjectTokenNotOnOrAfterToleranceMill);
+		}
+
+		var subjectTokenMaxUseCount = oidcSecurityPolicies.getSubjectTokenMaxUseCount();
+		if (expirationTime == null) {
+			subjectTokenMaxUseCount = 1;
+		}
+
+		if (subjectTokenCount != null && subjectTokenCount >= subjectTokenMaxUseCount) {
+			var message = String.format("subject_token can not be reused for client=%s. Max allowed usage=%s", oidcClient.getId(), subjectTokenMaxUseCount);
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_TOKEN, message, ERROR_URI);
+		}
+
+		var iat = jwtClaimsSet.getIssueTime();
+		var iatTimestamp = expirationTimeTimeStep;
+		if (iat != null) {
+			iatTimestamp = new Timestamp(iat.getTime());
+		}
+		log.debug("Subject token unique for client={}, expirationTime={}", clientId, expirationTime);
+		this.authorizationService.saveTokenExchangeSubjectToken(subjectToken, clientId, clientPrincipalName, iatTimestamp, expirationTimeTimeStep);
+	}
+
+	private void validateRpForPKCEAuthentication(Authentication clientPrincipal, OidcClient rpOidcClient) {
+		if (PublicClientAuthenticationToken.class.isAssignableFrom(clientPrincipal.getClass()) &&
+				Boolean.FALSE.equals(rpOidcClient.getOidcSecurityPolicies().getAllowPublicClientTokenExchange())) {
+			var message = String.format("Missing authentication params for client=%s. " +
+					"Received PublicClientAuthenticationToken but ClientSecret is expected", rpOidcClient.getId());
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_REQUEST, message, ERROR_URI);
+		}
+	}
+
+	private static void validateClaimsParty(ClaimsParty claimsParty, String iss) {
+		if (claimsParty == null) {
+			log.error("Missing OIDC client pair for iss={}", iss);
+			CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_CLIENT, iss, ERROR_URI);
+		}
+	}
+
+	private static OidcClient validateRpClient(OidcClient rpOidcClient, String registeredClientId) {
+		if (rpOidcClient == null) {
+			log.error("Could not find Rp OidcClient with id={}", registeredClientId);
+			CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_CLIENT, registeredClientId, ERROR_URI);
+		}
+		return rpOidcClient;
+	}
+
+	private static void validateRegisteredClient(RegisteredClient registeredClient, String registeredClientId) {
+		if (registeredClient == null) {
+			log.error("Could not find Client with id={}", registeredClientId);
+			CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_CLIENT, registeredClientId, ERROR_URI);
+		}
+	}
+
+	private static void validateClaimSet(JWTClaimsSet jwtClaimsSet, ClaimsParty claimsParty) {
+		if (jwtClaimsSet == null) {
+			var message = String.format("Claims are null in token for client %s", claimsParty.getId());
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_REQUEST, message, ERROR_URI);
 		}
 	}
 
@@ -331,7 +411,7 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 		if (subjectAcrs != null && !subjectAcrs.isEmpty()) {
 			var cpQoa = cpOidcConfig.getQoa() != null ? cpOidcConfig.getQoa() : claimsParty.getQoa();
 			var rpQoa = rpOidcClient.getQoa() != null ? rpOidcClient.getQoa() : relyingParty.getQoa();
-			var comparison = cpQoa.getComparison() != null ? cpQoa.getComparison() : QoaComparison.EXACT;
+			var comparison = cpQoa != null && cpQoa.getComparison() != null ? cpQoa.getComparison() : QoaComparison.EXACT;
 			var qoaSpec = qoaMappingService.mapRequestQoasToOutbound(comparison, subjectAcrs, new QoaConfig(cpQoa, claimsParty.getId()),
 					new QoaConfig(rpQoa, relyingParty.getId()));
 			List<String> outboundQoas = qoaSpec.contextClasses();
@@ -342,40 +422,30 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 		}
 	}
 
-	private void addSidToToken(Map<String, Object> tokenData) {
-		var sessionId = HttpExchangeSupport.getOrCreateSessionId();
-		if (sessionId != null) {
-			tokenData.put(OidcUtil.OIDC_SID, sessionId);
-		}
-	}
-
-	private void addAuthTimeToToken(Map<String, Object> tokenData, Map<String, Object> subjectTokenClaims) {
-		if (subjectTokenClaims != null && subjectTokenClaims.get(IdTokenClaimNames.AUTH_TIME) != null) {
-			tokenData.put(IdTokenClaimNames.AUTH_TIME, subjectTokenClaims.get(IdTokenClaimNames.AUTH_TIME));
-		}
-	}
-
-	private static Map<String, Object> getActorClaims(Map<String, Object> subjectTokenClaims, Map<String, Object> authorizedActorClaims) {
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> getActorClaims(Map<String, Object> subjectTokenClaims) {
 		if (subjectTokenClaims != null && subjectTokenClaims.containsKey(MAY_ACT) && subjectTokenClaims.get(MAY_ACT) instanceof Map<?, ?> mayAct) {
-			authorizedActorClaims = (Map<String, Object>) mayAct;
+			return (Map<String, Object>) mayAct;
 		}
-		return authorizedActorClaims;
+		return Collections.emptyMap();
 	}
 
 	private static void isValidTokenData(Map<String, Object> tokenData, RelyingParty relyingParty, ClaimsParty claimsParty) {
 		if (tokenData.isEmpty()) {
-			log.error("No token data found for subject token. In relyingParty={} claims={}", relyingParty.getId(), claimsParty);
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.ACCESS_DENIED);
+			var message = String.format("No token data found for subject token. In relyingParty=%s claims=%s", relyingParty.getId(), claimsParty);
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.ACCESS_DENIED, message, ERROR_URI);
 		}
 	}
 
 	private static String validateAndGetSubject(Assertion assertion, String registeredClientId) {
-		if (assertion.getSubject() == null) {
-			log.error("Missing SAML2 assertion subject for token exchange clientId={}", registeredClientId);
-			throw new OAuth2AuthenticationException(INVALID_REQUEST);
+		var subject = assertion.getSubject();
+		if (subject == null || subject.getNameID() == null) {
+			var message = String.format("Missing SAML2 assertion subject for token exchange clientId=%s", registeredClientId);
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_REQUEST, message, ERROR_URI);
+			return null;
 		}
 
-		return assertion.getSubject().getNameID().getValue();
+		return subject.getNameID().getValue();
 	}
 
 	private static void validateTokenAuthorization(OAuth2Authorization.Token<OAuth2Token> subjectAuthorizationToken, String subjectTokenType) {
@@ -384,64 +454,69 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 			// invalid_grant: The provided authorization grant (e.g., authorization code,
 			// resource owner credentials) or refresh token is invalid, expired, revoked
 			// [...].
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
+			CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_GRANT, "subjectAuthorization", ERROR_URI);
 		}
 
-		if (!isValidTokenType(subjectTokenType, subjectAuthorizationToken)) {
-			throw new OAuth2AuthenticationException(INVALID_REQUEST);
-		}
+		validateTokenType(subjectTokenType, subjectAuthorizationToken);
 	}
 
-	private static void validateInputParams(Optional<OidcClient> rpOidcClient, RegisteredClient registeredClient, String registeredClientId, OAuth2TokenExchangeAuthenticationToken tokenExchangeAuthentication) {
-		if (rpOidcClient.isEmpty() || registeredClient == null) {
-			log.error("Missing OIDC client configuration for token exchange clientId={}", registeredClientId);
-			throw new OAuth2AuthenticationException(INVALID_REQUEST);
-		}
-
-		if (log.isTraceEnabled()) {
-			log.trace("Retrieved authorization with token for client {}", registeredClientId);
-		}
-
-		if (!registeredClient.getAuthorizationGrantTypes().contains(AuthorizationGrantType.TOKEN_EXCHANGE)) {
-			log.error("Missing authorization grant type for token exchange authentication clientId={}", registeredClientId);
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
-		}
-
-		if (JWT_TOKEN_TYPE_VALUE.equals(tokenExchangeAuthentication.getRequestedTokenType()) && !OAuth2TokenFormat.SELF_CONTAINED.equals(registeredClient.getTokenSettings().getAccessTokenFormat())) {
-			throw new OAuth2AuthenticationException(INVALID_REQUEST);
-		}
-	}
-
-	private Map<String, Set<String>> validateRequestParamAndRetrieveScopes(OAuth2TokenExchangeAuthenticationToken tokenExchangeAuthentication, RegisteredClient registeredClient, OAuth2Authorization subjectAuthorization, OidcClient oidcClient, Map<String, Object> subjectTokenClaims) {
+	private Map<String, Set<String>> validateRequestParamAndRetrieveScopes(OAuth2TokenExchangeAuthenticationToken tokenExchangeAuthentication,
+																		   RegisteredClient registeredClient, OAuth2Authorization subjectAuthorization,
+																		   OidcClient oidcClient) {
 		Map<String, Set<String>> requestParams = new HashMap<>();
 		if (!CollectionUtils.isEmpty(tokenExchangeAuthentication.getScopes())) {
-			requestParams.put(REQUEST_SCOPES, validateRequestedScopes(registeredClient, tokenExchangeAuthentication.getScopes()));
+			requestParams.put(REQUEST_SCOPE, validateRequestedScopes(registeredClient, tokenExchangeAuthentication.getScopes()));
 		}
 		else if (!CollectionUtils.isEmpty(subjectAuthorization.getAuthorizedScopes())) {
-			requestParams.put(REQUEST_SCOPES, validateRequestedScopes(registeredClient, subjectAuthorization.getAuthorizedScopes()));
+			requestParams.put(REQUEST_SCOPE, validateRequestedScopes(registeredClient, subjectAuthorization.getAuthorizedScopes()));
 		}
-		else if (oidcClient.getScopes() != null) {
-			log.error("Scopes are missing in={}, configured scopes={}", oidcClient.getId(), oidcClient.getScopes());
-			throw new OAuth2AuthenticationException(INVALID_REQUEST);
+		else if (oidcClient.getScopes() == null) {
+			var message = String.format("Scopes are missing in=%s, configured", oidcClient.getId());
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_REQUEST, message, ERROR_URI);
 		}
 		else {
-			requestParams.put(REQUEST_SCOPES, new LinkedHashSet<>(Set.of(OidcScopes.OPENID)));
+			requestParams.put(REQUEST_SCOPE, new LinkedHashSet<>(Set.of(OidcScopes.OPENID)));
 		}
 
 		var audiences = tokenExchangeAuthentication.getAudiences();
-		validateRequestedAudiences(audiences, oidcClient);
+		OidcValidator.validateRequestedAudiences(audiences, oidcClient, ERROR_URI);
 		if (!CollectionUtils.isEmpty(audiences)) {
-			subjectTokenClaims.put(REQUEST_AUDIENCES, audiences);
-			requestParams.put(REQUEST_AUDIENCES, audiences);
+			requestParams.put(REQUEST_AUDIENCE, audiences);
 		}
 
 		var resources = tokenExchangeAuthentication.getResources();
-		validateRequestResources(resources, oidcClient);
+		OidcValidator.validateRequestResources(resources, oidcClient, ERROR_URI);
 		if (!CollectionUtils.isEmpty(resources)) {
-			subjectTokenClaims.put(REQUEST_RESOURCES, resources);
-			requestParams.put(REQUEST_RESOURCES, resources);
+			requestParams.put(REQUEST_RESOURCE, resources);
 		}
+
+		var subjectTokenValue = tokenExchangeAuthentication.getSubjectToken();
+		addRequestParamIfNotNull(requestParams, REQUEST_SUBJECT_TOKEN, subjectTokenValue);
+
+		var subjectTokenType = tokenExchangeAuthentication.getSubjectTokenType();
+		addRequestParamIfNotNull(requestParams, REQUEST_SUBJECT_TOKEN_TYPE, subjectTokenType);
+
+		var requestedTokenType = tokenExchangeAuthentication.getRequestedTokenType();
+		addRequestParamIfNotNull(requestParams, REQUEST_REQUESTED_TOKEN_TYPE, requestedTokenType);
+
+		var additionalParameters = tokenExchangeAuthentication.getAdditionalParameters();
+		if (additionalParameters != null) {
+			for (Map.Entry<String, Object> additionalParameter : additionalParameters.entrySet()) {
+				if (additionalParameter.getValue() != null) {
+					addRequestParamIfNotNull(requestParams, "request_" + additionalParameter.getKey(), additionalParameter.getValue().toString());
+				}
+			}
+		}
+
 		return requestParams;
+	}
+
+	void addRequestParamIfNotNull(Map<String, Set<String>> requestParams, String paramName, String value) {
+		if (value != null) {
+			Set<String> values = new HashSet<>();
+			values.add(value);
+			requestParams.put(paramName, values);
+		}
 	}
 
 	private OAuth2Authorization getOAuth2AuthorizationWithActorToken(OAuth2TokenExchangeAuthenticationToken tokenExchangeAuthentication, Map<String, Object> authorizedActorClaims) {
@@ -449,7 +524,8 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 		if (StringUtils.hasText(tokenExchangeAuthentication.getActorToken())) {
 			actorAuthorization = this.authorizationService.findByToken(tokenExchangeAuthentication.getActorToken(), OAuth2TokenType.ACCESS_TOKEN);
 			if (actorAuthorization == null) {
-				throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
+				CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_GRANT, "actor_token", ERROR_URI);
+				return null;
 			}
 
 			if (log.isTraceEnabled()) {
@@ -459,41 +535,27 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 			OAuth2Authorization.Token<OAuth2Token> actorToken = actorAuthorization.getToken(tokenExchangeAuthentication.getActorToken());
 			validateTokenAuthorization(actorToken, tokenExchangeAuthentication.getActorTokenType());
 
+			if (actorToken == null) {
+				log.error("No actor token found for actor token={}", tokenExchangeAuthentication.getActorToken());
+				CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_GRANT, "actor_token", ERROR_URI);
+				return null;
+			}
+
 			if (authorizedActorClaims != null) {
 				validateClaims(authorizedActorClaims, actorToken.getClaims(), OAuth2TokenClaimNames.ISS, OAuth2TokenClaimNames.SUB);
 			}
 		}
 		else if (authorizedActorClaims != null) {
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_GRANT, "authorized_actor_claim", ERROR_URI);
 		}
 		return actorAuthorization;
 	}
 
-	private Function<String, Optional<JWK>> getJWKForClaimParty(ClaimsParty claimsParty) {
-		return oidcMetadataCacheService.jwtKeySupplier(claimsParty);
-	}
-
-	private void validateRequestResources(Set<String> resources, OidcClient oidcClient) {
-		Set<String> configResources = oidcClient.getResources();
-		if (configResources != null && !configResources.containsAll(resources)) {
-			log.error("Resources={} are not matching configured resources={}", resources, configResources);
-			throw new OAuth2AuthenticationException(INVALID_REQUEST);
-		}
-	}
-
-	private void validateRequestedAudiences(Set<String> audiences, OidcClient oidcClient) {
-		Set<String> configAudiences = oidcClient.getAudiences();
-		if (configAudiences != null && !configAudiences.containsAll(audiences)) {
-			log.error("Audiences={} are not matching configured audience={}", audiences, configAudiences);
-			throw new OAuth2AuthenticationException(INVALID_REQUEST);
-		}
-	}
-
 	private Map<String, OAuth2Token> generateAndSaveTokens(OAuth2Authorization.Builder subjectAuthorizationBuilder, OAuth2TokenExchangeAuthenticationToken tokenExchangeAuthentication,
-													DefaultOAuth2TokenContext.Builder tokenContextBuilder, RelyingParty relyingParty, Map<String, Object> tokenData, OidcClient rpOidcClient) {
+														   DefaultOAuth2TokenContext.Builder tokenContextBuilder, RelyingParty relyingParty, Map<String, Object> tokenData, OidcClient rpOidcClient) {
 		OAuth2TokenContext tokenContext = tokenContextBuilder.build();
 
-		OAuth2Token token = null;
+		OAuth2Token token;
 		if (SAML2_TOKEN_TYPE_VALUE.equals(tokenExchangeAuthentication.getRequestedTokenType())) {
 			var saml2TokenGenerator = new Saml2TokenGenerator(relyingParty, trustBrokerProperties);
 			token = saml2TokenGenerator.generate(tokenContext);
@@ -504,8 +566,8 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 			jwtGenerator.setJwtCustomizer(new TokenExchangeResponseCustomizer(tokenData, rpOidcClient, trustBrokerProperties));
 			token = jwtGenerator.generate(tokenContext);
 			if (token == null) {
-				OAuth2Error error = new OAuth2Error(OAuth2ErrorCodes.SERVER_ERROR, "The token generator failed to generate the access token.", ERROR_URI);
-				throw new OAuth2AuthenticationException(error);
+				var message = "The token generator failed to generate the access token.";
+				CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.SERVER_ERROR, message, ERROR_URI);
 			}
 		}
 
@@ -513,12 +575,12 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 
 		var accessToken = CustomOAuth2AuthenticationProviderUtils.accessToken(subjectAuthorizationBuilder, token, tokenContext);
 		tokens.put(OidcUtil.TOKEN_RESPONSE_ACCESS_TOKEN, accessToken);
-		if (rpOidcClient != null && canIssueIdToken(rpOidcClient)) {
+		if (rpOidcClient != null && OidcConfigurationUtil.canIssueIdToken(rpOidcClient)) {
 			var idToken = CustomOAuth2AuthenticationProviderUtils.idToken(subjectAuthorizationBuilder, token);
 			tokens.put(OidcUtil.TOKEN_RESPONSE_ID_TOKEN, idToken);
 		}
 
-		if (rpOidcClient != null && canIssueRefreshToken(rpOidcClient)) {
+		if (rpOidcClient != null && OidcConfigurationUtil.canIssueRefreshToken(rpOidcClient)) {
 			var refreshToken = CustomOAuth2AuthenticationProviderUtils.refreshToken(subjectAuthorizationBuilder, token);
 			tokens.put(OidcUtil.TOKEN_RESPONSE_REFRESH_TOKEN, refreshToken);
 		}
@@ -537,41 +599,15 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 		return tokens;
 	}
 
-	private boolean canIssueRefreshToken(OidcClient oidcClient) {
-		var authorizationGrantTypes = oidcClient.getAuthorizationGrantTypes();
-		if (authorizationGrantTypes == null) {
-			return false;
-		}
-		var types = authorizationGrantTypes.getGrantTypes();
-		for (var type : types) {
-			if (AuthorizationGrantType.REFRESH_TOKEN.equals(type.getType())) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private boolean canIssueIdToken(OidcClient oidcClient) {
-		var authorizationGrantTypes = oidcClient.getAuthorizationGrantTypes();
-		var scopes = oidcClient.getScopes();
-		if (authorizationGrantTypes == null || scopes == null) {
-			return false;
-		}
-		var types = authorizationGrantTypes.getGrantTypes();
-		for (var type : types) {
-			if (AuthorizationGrantType.AUTHORIZATION_CODE.equals(type.getType()) && scopes.getScopeList().contains(OidcScopes.OPENID)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static DefaultOAuth2TokenContext.Builder generateTokenContext(RegisteredClient registeredClient, Authentication principal, Set<String> authorizedScopes, OAuth2TokenExchangeAuthenticationToken tokenExchangeAuthentication, Jwt dPoPProof) {
+	private static DefaultOAuth2TokenContext.Builder generateTokenContext(RegisteredClient registeredClient, Authentication principal, Set<String> authorizedScopes,
+																		  OAuth2AuthorizationGrantAuthenticationToken tokenExchangeAuthentication, Jwt dPoPProof) {
 		var tokenContextBuilder = DefaultOAuth2TokenContext.builder()
 														   .registeredClient(registeredClient)
 														   .principal(principal)
-														   .authorizationServerContext(AuthorizationServerContextHolder.getContext()).authorizedScopes(authorizedScopes)
-														   .tokenType(OAuth2TokenType.ACCESS_TOKEN).authorizationGrantType(AuthorizationGrantType.TOKEN_EXCHANGE)
+														   .authorizationServerContext(AuthorizationServerContextHolder.getContext())
+														   .authorizedScopes(authorizedScopes)
+														   .tokenType(OAuth2TokenType.ACCESS_TOKEN)
+														   .authorizationGrantType(AuthorizationGrantType.TOKEN_EXCHANGE)
 														   .authorizationGrant(tokenExchangeAuthentication);
 
 		if (dPoPProof != null) {
@@ -581,37 +617,30 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 		return tokenContextBuilder;
 	}
 
-	private static Map<String, Object> extractSamlClaims(Assertion assertion) {
-		Map<String, Object> samlAttributes = new HashMap<>();
-		if (!assertion.getAttributeStatements().isEmpty()) {
-			var assertionAttributes = assertion.getAttributeStatements().get(0).getAttributes();
-			for (Attribute attribute : assertionAttributes) {
-				var namespaceUri = attribute.getName();
-				var values = SamlUtil.getValuesFromAttribute(attribute);
-				if (namespaceUri != null && !values.isEmpty()) {
-					samlAttributes.put(namespaceUri, values); // free to be processed afterward
-				}
-			}
-		}
-		return samlAttributes;
-	}
-
-	private static boolean isValidTokenType(String tokenType, OAuth2Authorization.Token<OAuth2Token> token) {
+	private static void validateTokenType(String tokenType, OAuth2Authorization.Token<OAuth2Token> token) {
 		if (token == null) {
-			return false;
+			log.error("No token found for tokenType={}", tokenType);
+			CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_REQUEST, REQUEST_SUBJECT_TOKEN_TYPE, ERROR_URI);
+			return;
 		}
 		String tokenFormat = token.getMetadata(OAuth2TokenFormat.class.getName());
-		return ACCESS_TOKEN_TYPE_VALUE.equals(tokenType) || JWT_TOKEN_TYPE_VALUE.equals(tokenType) && OAuth2TokenFormat.SELF_CONTAINED.getValue().equals(tokenFormat);
+		boolean isValidTokenType = ACCESS_TOKEN_TYPE_VALUE.equals(tokenType) || JWT_TOKEN_TYPE_VALUE.equals(tokenType) && OAuth2TokenFormat.SELF_CONTAINED.getValue().equals(tokenFormat);
+		if (!isValidTokenType) {
+			CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_REQUEST, REQUEST_SUBJECT_TOKEN_TYPE, ERROR_URI);
+		}
 	}
 
-	private static boolean isValidTokenType(String tokenType) {
-		return ACCESS_TOKEN_TYPE_VALUE.equals(tokenType) || JWT_TOKEN_TYPE_VALUE.equals(tokenType);
+	private static void validateTokenType(String tokenType) {
+		boolean isValidTokenType = ACCESS_TOKEN_TYPE_VALUE.equals(tokenType) || JWT_TOKEN_TYPE_VALUE.equals(tokenType);
+		if (!isValidTokenType) {
+			CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_REQUEST, tokenType, ERROR_URI);
+		}
 	}
 
 	private static Set<String> validateRequestedScopes(RegisteredClient registeredClient, Set<String> requestedScopes) {
 		for (String requestedScope : requestedScopes) {
 			if (!registeredClient.getScopes().contains(requestedScope)) {
-				throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_SCOPE);
+				CustomOAuth2EndpointUtils.throwError(OAuth2ErrorCodes.INVALID_SCOPE, REQUEST_SCOPE, ERROR_URI);
 			}
 		}
 
@@ -620,12 +649,13 @@ public class CustomOAuth2TokenExchangeAuthenticationProvider implements Authenti
 
 	private static void validateClaims(Map<String, Object> expectedClaims, Map<String, Object> actualClaims, String... claimNames) {
 		if (actualClaims == null) {
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
+			CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_GRANT, "actor_claim", ERROR_URI);
+			return;
 		}
 
 		for (String claimName : claimNames) {
 			if (!Objects.equals(expectedClaims.get(claimName), actualClaims.get(claimName))) {
-				throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
+				CustomOAuth2EndpointUtils.throwErrorWithMessage(OAuth2ErrorCodes.INVALID_GRANT, claimName, ERROR_URI);
 			}
 		}
 	}

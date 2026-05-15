@@ -16,22 +16,48 @@
 package swiss.trustbroker.federation.xmlconfig;
 
 import jakarta.xml.bind.annotation.XmlEnumValue;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 
 /**
  * Source for OIDC CP claims.
  *
  * @since 1.10.0
  */
+@AllArgsConstructor(access = AccessLevel.PACKAGE)
+@Getter
 public enum OidcClaimsSource {
+
 	/**
 	 * Use claims from ID token.
+	 * <br/>
+	 * Allows override of claims and subject of other sources by default.
 	 */
 	@XmlEnumValue("id_token")
-	ID_TOKEN,
+	ID_TOKEN(false, true, true),
 
 	/**
 	 * Use claims from userinfo endpoint.
+	 * <br/>
+	 * Allows override of claims <strong>other than subject</strong> of other sources by default.
 	 */
 	@XmlEnumValue("userinfo")
-	USERINFO
+	USERINFO(true, false, false),
+
+	/**
+	 * Use claims from userinfo endpoint, accepting signed JWT token responses only.
+	 * <br/>
+	 * Allows override of claims and subject of other sources by default.
+	 *
+	 * @since 1.13.0
+	 */
+	@XmlEnumValue("userinfo_jwt")
+	USERINFO_JWT(true, true, true);
+
+	private final boolean claimsFromUserinfo;
+
+	private final boolean allowClaimsOverride;
+
+	private final boolean allowSubjectOverride;
 }

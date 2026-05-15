@@ -45,6 +45,7 @@ import swiss.trustbroker.common.util.WSSConstants;
 import swiss.trustbroker.common.util.WebUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
+import swiss.trustbroker.federation.xmlconfig.WsTrustBinding;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.saml.util.AssertionValidator;
 import swiss.trustbroker.sessioncache.dto.StateData;
@@ -91,9 +92,9 @@ public class WsTrustRenewValidator extends WsTrustBaseValidator {
 		return true;
 	}
 
-	private boolean enabled() {
-		var properties = getTrustBrokerProperties();
-		return properties.getWstrust() != null && properties.getWstrust().isRenewEnabled();
+	@Override
+	protected WsTrustBinding getBinding() {
+		return WsTrustBinding.RENEW;
 	}
 
 	@Override
@@ -111,6 +112,7 @@ public class WsTrustRenewValidator extends WsTrustBaseValidator {
 		log.debug("RSTR RENEW request - assertion is in RenewTarget");
 		var assertion = extractRenewTargetAssertion(childObjects);
 		var relyingParty = getRecipientRelyingParty(assertion);
+		validateProtocolRestrictions(relyingParty, null);
 		var requireSignature = getTrustBrokerProperties().getWstrust().isRenewRequireSignedRequests();
 		validateSignature(requestHeader, requireSignature, relyingParty.getRpTrustCredentials());
 

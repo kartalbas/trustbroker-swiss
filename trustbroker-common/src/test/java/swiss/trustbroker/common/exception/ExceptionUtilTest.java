@@ -18,6 +18,8 @@ package swiss.trustbroker.common.exception;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 
@@ -67,4 +69,16 @@ class ExceptionUtilTest {
 		assertThat(ExceptionUtil.getRootMessage(null), is(nullValue()));
 	}
 
+	@Test
+	void testLog() {
+		assertDoesNotThrow(() -> ExceptionUtil.logOrThrow("error", true, RequestDeniedException::new));
+	}
+
+	@Test
+	void testThrow() {
+		var message = "Failed!";
+		var ex = assertThrows(RequestDeniedException.class, () -> ExceptionUtil.logOrThrow(message, false,
+				RequestDeniedException::new));
+		assertThat(ex.getInternalMessage(), is(message));
+	}
 }

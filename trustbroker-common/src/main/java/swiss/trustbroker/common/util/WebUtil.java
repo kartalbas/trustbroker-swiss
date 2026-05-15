@@ -21,23 +21,32 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import com.google.common.net.InternetDomainName;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import net.shibboleth.shared.codec.HTMLEncoder;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hc.client5.http.utils.DateUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.util.CollectionUtils;
+import org.springframework.web.cors.CorsUtils;
+import org.springframework.web.util.UriComponentsBuilder;
 import swiss.trustbroker.common.dto.CookieParameters;
+import swiss.trustbroker.common.saml.util.Base64Util;
 import swiss.trustbroker.common.tracing.OpTraceUtil;
 
 /**
@@ -58,6 +67,15 @@ public class WebUtil {
 
 	public static final String MEDIA_TYPE_SOAP_12 = "application/soap+xml";
 
+	// https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Mode
+	public static final String HTTP_HEADER_SEC_FETCH_MODE = "Sec-Fetch-Mode";
+
+	public static final String SEC_FETCH_MODE_CORS = "cors";
+
+	// https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Site
+	public static final String HTTP_HEADER_SEC_FETCH_SITE= "Sec-Fetch-Site";
+
+	public static final String SEC_FETCH_SITE_CROSS_SITE = "cross-site";
 
 	// Same site values
 	// See also:
@@ -99,6 +117,55 @@ public class WebUtil {
 			return ret.map(Cookie::getValue).orElse(null);
 		}
 		return null;
+	}
+
+	// detect potentially conflicting cookies:
+	public static Optional<Cookie> deduplicateSetCookie(Map<String, List<Cookie>> addedCookies, Cookie newCookie) {
+		var cookieList = addedCookies.computeIfAbsent(newCookie.getName(), key -> new ArrayList<>());
+		if (cookieList.contains(newCookie)) {
+			log.debug("Skip duplicate set-cookie with name={}", newCookie.getName());
+			return Optional.empty();
+		}
+		if (cookieList.isEmpty()) {
+			if (log.isDebugEnabled()) {
+				log.debug("Set-cookie cookie={}", cookieToString(newCookie));
+			}
+		}
+		else if (cookieList.stream().allMatch(
+					isCookieOfSameDomainAndPath(newCookie).and(isCookieValueSameOrChangeFromToEmpty(newCookie)))) {
+			if (log.isDebugEnabled()) {
+				log.debug("Duplicate set-cookie: cookie={} - already set cookies={}",
+						cookieToString(newCookie), cookiesToStrings(cookieList));
+			}
+		}
+		else if (log.isInfoEnabled()) {
+			log.info("Duplicate set-cookie with differing path/domain/value: cookie={} - already set cookies={}",
+					cookieToString(newCookie), cookiesToStrings(cookieList));
+		}
+		cookieList.add(newCookie);
+		return Optional.of(newCookie);
+	}
+
+	public static List<String> cookiesToStrings(List<Cookie> cookieList) {
+		return cookieList.stream()
+				.map(WebUtil::cookieToString)
+				.toList();
+	}
+
+	public static String cookieToString(Cookie cookie) {
+		return String.format("name='%s' path='%s' domain='%s' value='%s' maxAge=%d attributes=%s",
+				cookie.getName(), cookie.getPath(), cookie.getDomain(), cookie.getValue(),
+				cookie.getMaxAge(), cookie.getAttributes());
+	}
+
+	static Predicate<Cookie> isCookieOfSameDomainAndPath(Cookie newCookie) {
+		return cookie -> Objects.equals(newCookie.getDomain(), cookie.getDomain()) &&
+				Objects.equals(newCookie.getPath(), cookie.getPath());
+	}
+
+	static Predicate<Cookie> isCookieValueSameOrChangeFromToEmpty(Cookie newCookie) {
+		return cookie -> Objects.equals(cookie.getValue(), newCookie.getValue()) ||
+				(StringUtils.isEmpty(cookie.getValue()) != StringUtils.isEmpty(newCookie.getValue()));
 	}
 
 	public static String getAny(String name, HttpServletRequest request) {
@@ -264,6 +331,40 @@ public class WebUtil {
 		return urlBuilder.toString();
 	}
 
+	// split URL into base part and query parameters
+	// ued to remove query string as this is not submitted with a GET form action:
+	// https://www.w3.org/TR/2014/REC-html5-20141028/forms.html#submit-mutate-action
+	public static Pair<String, List<Pair<String, String>>> splitQueryParameters(String url, boolean htmlEncodeParameters) {
+		var uri = WebUtil.getValidatedUri(url);
+		if (uri == null || uri.getQuery() == null) {
+			return Pair.of(url, Collections.emptyList());
+		}
+		var builder = UriComponentsBuilder.fromUri(uri);
+		var params = builder.build().getQueryParams();
+		List<Pair<String, String>> queryParams = htmlEncodeQueryParameters(htmlEncodeParameters, params);
+		builder.query(null);
+		var baseUrl = builder.build().toUriString();
+		log.debug("Extracted queryParameters={} from url={} baseUrl={}", queryParams, url, baseUrl);
+		return Pair.of(baseUrl, queryParams);
+	}
+
+	private static List<Pair<String, String>> htmlEncodeQueryParameters(boolean htmlEncodeParameters,
+			Map<String, List<String>> params) {
+		List<Pair<String, String>> result = new ArrayList<>();
+		for (var param : params.entrySet()) {
+			var key = htmlEncodeValue(param.getKey(), htmlEncodeParameters);
+			for (var value : param.getValue()) {
+				result.add(Pair.of(key, htmlEncodeValue(value, htmlEncodeParameters)));
+			}
+		}
+		return result;
+	}
+
+	private static String htmlEncodeValue(String value, boolean htmlEncodeParameters) {
+		value = value != null ? urlDecodeValue(value) : null;
+		return htmlEncodeParameters ? HTMLEncoder.encodeForHTMLAttribute(value) : value;
+	}
+
 	public static Cookie createCookie(CookieParameters params) {
 		log.debug("Generate cookie for params={}", params);
 		var cookie = new Cookie(params.getName(), params.getValue());
@@ -293,10 +394,36 @@ public class WebUtil {
 		return cookie;
 	}
 
-	public static String getCookieSameSite(String perimeterUrl, String requestUrl) {
-		var isSameSite = isSameSite(getValidatedUri(perimeterUrl), getValidatedUri(requestUrl));
-		var sameSite = getSameSite(isSameSite);
-		log.debug("Cookie sameSite={} for perimeterUrl={} requestUrl={}", sameSite, perimeterUrl, requestUrl);
+	// calculate dynamic same site cookie flag
+	// defaultSameSite, perimeterUrl: from properties
+	// crossSiteRequest: from request Sec-Fetch-Site if available (use WebUtil.crossSiteRequest)
+	// insecureRequest: from request.isSecure if available
+	public static String getCookieSameSite(String defaultSameSite, String perimeterUrl, String requestUrl,
+			Optional<Boolean> crossSiteRequest, Optional<Boolean> insecureRequest) {
+		String sameSite;
+		if (crossSiteRequest.isPresent() && crossSiteRequest.get().booleanValue()) {
+			sameSite = COOKIE_SAME_SITE_NONE;
+			log.debug("Using SameSite={} for cross-site request with perimeterUrl={} requestUrl={}",
+					sameSite, perimeterUrl, requestUrl);
+		}
+		else if (requestUrl != null) {
+			var urlSameSite = isSameSite(getValidatedUri(perimeterUrl), getValidatedUri(requestUrl));
+			sameSite = getSameSite(urlSameSite);
+			log.debug("Cookie sameSite={} for perimeterUrl={} requestUrl={}", sameSite, perimeterUrl, requestUrl);
+		}
+		else if (COOKIE_SAME_SITE_DYNAMIC.equalsIgnoreCase(defaultSameSite)) {
+			sameSite = COOKIE_SAME_SITE_STRICT;
+			log.debug("Using SameSite={} without requestUrl and default={}", sameSite, defaultSameSite);
+		}
+		else {
+			sameSite = defaultSameSite;
+			log.debug("Defaulting to SameSite={} without requestUrl", sameSite);
+		}
+		if (insecureRequest.isPresent() && insecureRequest.get().booleanValue()
+				&& COOKIE_SAME_SITE_NONE.equalsIgnoreCase(sameSite)) {
+			log.debug("Discarding SameSite=None on insecure transport (SameSite not set)");
+			sameSite = null;
+		}
 		return sameSite;
 	}
 
@@ -458,6 +585,26 @@ public class WebUtil {
 		return originBuilder.toString();
 	}
 
+	// Checks Sec-Fetch-Mode if present, else based on Origin vs. request
+	public static boolean isCorsRequest(HttpServletRequest request) {
+		var mode = request.getHeader(HTTP_HEADER_SEC_FETCH_MODE);
+		if (mode == null) {
+			log.debug("No {} header, falling back to {}", HTTP_HEADER_SEC_FETCH_MODE, HttpHeaders.ORIGIN);
+			return CorsUtils.isCorsRequest(request);
+		}
+		return mode.equals(SEC_FETCH_MODE_CORS);
+	}
+
+	// Checks Sec-Fetch-Mode if present, else returns null
+	public static Optional<Boolean> isCrossSiteRequest(HttpServletRequest request) {
+		var mode = request.getHeader(HTTP_HEADER_SEC_FETCH_SITE);
+		if (mode == null) {
+			log.debug("No {} header", HTTP_HEADER_SEC_FETCH_SITE);
+			return Optional.empty();
+		}
+		return Optional.of(mode.equals(SEC_FETCH_SITE_CROSS_SITE));
+	}
+
 	/**
 	 * "etag" must contain leading and trailing quotes
 	 *
@@ -541,4 +688,20 @@ public class WebUtil {
 		return isOriginOrRefererInSets(allowedUrlSets, referer, validReferer);
 	}
 
+	// related OIDC specs:
+	// https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
+	// https://www.rfc-editor.org/rfc/rfc6749.html#section-2.3.1
+	public static String getBasicAuthorizationHeader(String clientId, String clientSecret) {
+		return OidcUtil.HTTP_BASIC + ' ' + Base64Util.encode(
+				urlEncodeValue(clientId) + ':' + urlEncodeValue(clientSecret),
+				Base64Util.Base64Encoding.UNCHUNKED);
+	}
+
+	// related OIDC specs:
+	// https://openid.net/specs/openid-connect-core-1_0.html#UserInfo
+	// https://www.rfc-editor.org/rfc/rfc6750#section-2.1
+	// accessToken must be JWT encoded: base64(header).base64(payload).base64(signature)
+	public static String getBearerAuthorizationHeader(String accessToken) {
+		return OidcUtil.OIDC_BEARER + ' ' + accessToken;
+	}
 }

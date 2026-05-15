@@ -170,7 +170,6 @@ public class SoapUtil {
 	}
 
 	public static boolean isSignatureValid(Element element, Node signatureNode, List<Credential> trustCredentials) {
-		try {
 			if (signatureNode == null) {
 				log.debug("No signature for element={}", element.getNodeName());
 				return false;
@@ -185,26 +184,24 @@ public class SoapUtil {
 			for (var trustCredential : trustCredentials) {
 				var credential = (BasicX509Credential) trustCredential;
 				var publicKey = credential.getPublicKey();
-
 				var valContext = new DOMValidateContext(publicKey, signatureNode);
-
-				var signature = sigFactory.unmarshalXMLSignature(valContext);
-				if (signature.validate(valContext)) {
-					log.debug("Signature validation succeeded on element={} with credential={}",
-							element.getNodeName(), credential.getEntityId());
-					return true;
+				try {
+					var signature = sigFactory.unmarshalXMLSignature(valContext);
+					if (signature.validate(valContext)) {
+						log.debug("Signature validation succeeded on element={} with credential={}",
+								element.getNodeName(), credential.getEntityId());
+						return true;
+					}
+				}
+				catch (Exception ex) {
+					log.info("Could not validate signature of element={} : {} caused by {}",
+							element.getNodeName(), ex.getMessage(), ExceptionUtil.getRootMessage(ex));
 				}
 				failedCredentials.add(credential.getEntityId());
 			}
 			log.info("Signature={} not valid for element={} with credentials={}", signatureNode.getNodeName(),
 					element.getNodeName(), failedCredentials);
 			return false;
-		}
-		catch (Exception ex) {
-			log.info("Could not validate signature of element={} : {} caused by {}", element.getNodeName(), ex.getMessage(),
-					ExceptionUtil.getRootMessage(ex));
-			return false;
-		}
 	}
 
 }

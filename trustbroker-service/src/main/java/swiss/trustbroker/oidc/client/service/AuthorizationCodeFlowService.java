@@ -98,7 +98,7 @@ public class AuthorizationCodeFlowService {
 		}
 		// fetch tokens (back-channel):
 		var configuration = oidcMetadataCacheService.getOidcConfiguration(claimsParty);
-		var keySupplier = jwtKeySupplier(claimsParty);
+		var keySupplier = jwtKeySupplier(claimsParty, null);
 		var redirectUri = apiSupport.getOidcResponseApi(client.getRealm());
 		var tokenResponse = oidcTokenService.fetchTokens(client, claimsParty.getCertificates(), configuration, redirectUri, code);
 		var idTokenClaims = getClaimsFromIdToken(claimsParty, stateData, client, configuration, tokenResponse, keySupplier);
@@ -132,7 +132,7 @@ public class AuthorizationCodeFlowService {
 	private JWTClaimsSet getClaimsFromUserinfo(ClaimsParty claimsParty, OidcClient client,
 			Map<String, Object> tokenResponse, OpenIdProviderConfiguration configuration,
 			Function<String, Optional<JWK>> keySupplier) {
-		if (!client.useClaimsFromSource(OidcClaimsSource.USERINFO)) {
+		if (!client.useClaimsFromSourceThat(OidcClaimsSource::isClaimsFromUserinfo)) {
 			log.debug("No claims from userinfo required");
 			return null;
 		}
@@ -153,17 +153,19 @@ public class AuthorizationCodeFlowService {
 	static JWTClaimsSet mergeClaims(OidcClient client, JWTClaimsSet idTokenClaims, JWTClaimsSet userinfoClaims) {
 		JWTClaimsSet claims = null;
 		OidcClaimsSource claimsSource = null;
-		for (var source : client.getClaimsSources().getClaimsSourceList()) {
+		var claimsSources = client.getClaimsSources();
+		for (var source : claimsSources.getClaimsSourceList()) {
 			var sourceClaims = switch (source) {
 				case ID_TOKEN -> idTokenClaims;
-				case USERINFO -> userinfoClaims;
+				case USERINFO, USERINFO_JWT -> userinfoClaims;
 			};
 			claims = OidcUtil.mergeJwtClaims(claims, claimsSource != null ? claimsSource.name() : null,
-					sourceClaims, source.name());
+					sourceClaims, source.name(), claimsSources.allowClaimsOverride(source),
+					claimsSources.allowSubjectOverride(source));
 			claimsSource = source;
 		}
 		log.debug("OIDC client={} merged from sources={} claims={}",
-				client.getId(), client.getClaimsSources().getClaimsSourceList(), claims);
+				client.getId(), claimsSources.getClaimsSourceList(), claims);
 		if (claims == null) {
 			// should not happen due to default
 			throw new TechnicalException(String.format("OIDC client=%s has no ClaimsSources", client.getId()));
@@ -171,12 +173,12 @@ public class AuthorizationCodeFlowService {
 		return claims;
 	}
 
-	private Function<String, Optional<JWK>> jwtKeySupplier(ClaimsParty claimsParty) {
-		return id -> oidcMetadataCacheService.getKey(claimsParty, id);
+	private Function<String, Optional<JWK>> jwtKeySupplier(ClaimsParty claimsParty, OidcClient oidcClient) {
+		return id -> oidcMetadataCacheService.getKey(claimsParty, id, oidcClient);
 	}
 
 	private CpResponse buildCpResponseFromClaims(ClaimsParty claimsParty, OidcClient oidcClient, JWTClaimsSet claims) {
-		var attributes = jwtClaimsService.mapClaimsToAttributes(claims, claimsParty);
+		var attributes = jwtClaimsService.mapAndValidateClaimsToAttributes(claims.getClaims(), claimsParty);
 		if (claimsParty.getHomeName() == null) {
 			throw new TechnicalException(String.format("Missing HomeName for cpIssuerId=%s", claimsParty.getId()));
 		}

@@ -31,6 +31,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationServerMetadataClaimNames;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
@@ -316,11 +317,8 @@ public class OidcConfigurationUtil {
 	}
 
 	public static Map<String, Object> computeOidcClaims(
-			Map<String, List<Object>> attributesFromContext,
-			List<Definition> definitions,
-			ClaimsMapperService claimsMapperService,
-			boolean addStandardClaims,
-			OidcClient oidcClient) {
+			Map<String, List<Object>> attributesFromContext, List<Definition> definitions,
+			ClaimsMapperService claimsMapperService, boolean addStandardClaims, OidcClient oidcClient) {
 		// we allow this one to be manipulated in CpResponse.claims based on CpResponse.attributes
 		var map = new HashMap<String, Object>();
 		if (definitions.isEmpty()) {
@@ -480,6 +478,11 @@ public class OidcConfigurationUtil {
 	}
 
 	static void removeDisabledEndpointFromMetadataClaim(OidcProperties oidcProperties, Map<String, Object> claimMap) {
+		if (!oidcProperties.isEnabled()) {
+			log.info("OIDC disabled, no metadata provided - enable via trustbroker.config.oidc.enabled=true");
+			claimMap.clear();
+			return;
+		}
 		if (!oidcProperties.isIntrospectionEnabled()) {
 			claimMap.remove(OAuth2AuthorizationServerMetadataClaimNames.INTROSPECTION_ENDPOINT);
 			claimMap.remove(
@@ -570,4 +573,32 @@ public class OidcConfigurationUtil {
 		return secret != null ? secret : "{sha256}" + DigestUtils.sha256Hex(UUID.randomUUID().toString().getBytes());
 	}
 
+	public static boolean canIssueRefreshToken(OidcClient oidcClient) {
+		var authorizationGrantTypes = oidcClient.getAuthorizationGrantTypes();
+		if (authorizationGrantTypes == null) {
+			return false;
+		}
+		var types = authorizationGrantTypes.getGrantTypes();
+		for (var type : types) {
+			if (org.springframework.security.oauth2.core.AuthorizationGrantType.REFRESH_TOKEN.equals(type.getType())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public static boolean canIssueIdToken(OidcClient oidcClient) {
+		var authorizationGrantTypes = oidcClient.getAuthorizationGrantTypes();
+		var scopes = oidcClient.getScopes();
+		if (authorizationGrantTypes == null || scopes == null) {
+			return false;
+		}
+		var types = authorizationGrantTypes.getGrantTypes();
+		for (var type : types) {
+			if (org.springframework.security.oauth2.core.AuthorizationGrantType.AUTHORIZATION_CODE.equals(type.getType()) && scopes.getScopeList().contains(OidcScopes.OPENID)) {
+				return true;
+			}
+		}
+		return false;
+	}
 }

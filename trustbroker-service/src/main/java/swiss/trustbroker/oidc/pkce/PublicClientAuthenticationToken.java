@@ -27,13 +27,13 @@ import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 
-public final class PublicClientRefreshTokenAuthenticationToken  extends OAuth2ClientAuthenticationToken {
+public final class PublicClientAuthenticationToken extends OAuth2ClientAuthenticationToken {
 
-	PublicClientRefreshTokenAuthenticationToken(String clientId) {
+	PublicClientAuthenticationToken(String clientId) {
 		super(clientId, ClientAuthenticationMethod.NONE, null, null);
 	}
 
-	PublicClientRefreshTokenAuthenticationToken(RegisteredClient registeredClient) {
+	PublicClientAuthenticationToken(RegisteredClient registeredClient) {
 		super(registeredClient, ClientAuthenticationMethod.NONE, null);
 	}
 

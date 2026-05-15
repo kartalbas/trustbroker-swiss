@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import com.nimbusds.jwt.JWTClaimsSet;
@@ -121,24 +122,6 @@ class OidcUtilTest {
 		assertThat(clId, nullValue());
 	}
 
-	@ParameterizedTest
-	@CsvSource(value = {
-			"https://trustbroker.swiss,secret:1,Basic aHR0cHMlM0ElMkYlMkZ0cnVzdGJyb2tlci5zd2lzczpzZWNyZXQlM0Ex",
-			"client,1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890,Basic Y2xpZW50OjEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTA="
-	})
-	void testGetBasicAuthorizationHeader(String clientId, String secret, String expected) {
-		assertThat(OidcUtil.getBasicAuthorizationHeader(clientId, secret), is(expected));
-	}
-
-	@ParameterizedTest
-	@CsvSource(value = {
-			"token,Bearer token",
-			"1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890,Bearer 1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"
-	})
-	void testGetBearerAuthorizationHeader(String token, String expected) {
-		assertThat(OidcUtil.getBearerAuthorizationHeader(token), is(expected));
-	}
-
 	@Test
 	void testParseJwtClaimsEmpty() {
 		var emptyResult = new JWTClaimsSet.Builder().build();
@@ -161,24 +144,44 @@ class OidcUtilTest {
 	}
 
 	@Test
-	void testMergeJwtClaims() throws Exception {
-		var primary = JWTClaimsSet.parse(Map.of(
+	void testMergeJwtClaimsSingleSource() throws Exception {
+		var source = JWTClaimsSet.parse(Map.of(
 				OidcUtil.OIDC_SUBJECT, "sub1",
 				OidcUtil.OIDC_SESSION_ID, "session1",
 				OidcUtil.OIDC_AUTHORIZED_PARTY, "party1"
 		));
-		assertThat(OidcUtil.mergeJwtClaims(primary, "primary", null, null), is(primary));
-		var secondary = JWTClaimsSet.parse(Map.of(
-				OidcUtil.OIDC_SUBJECT, "sub1",
-				OidcUtil.OIDC_ACR, "acr1",
-				OidcUtil.OIDC_AUTHORIZED_PARTY, "party2"
+		assertThat(OidcUtil.mergeJwtClaims(source, "primary", null, "secondary", true, true), is(source));
+		assertThat(OidcUtil.mergeJwtClaims(null, "primary", source, "secondary", true, true), is(source));
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {
+			"sub1,azp1,sub2,azp2,true,true,sub2,azp2", // override both with secondary
+			"sub1,azp1,sub2,azp2,true,false,sub2,azp1", // override sub with secondary
+			"sub1,azp1,sub2,azp2,false,true,sub1,azp2", // override azp with secondary
+			"sub1,azp1,sub2,azp2,false,false,sub1,azp1", // override none
+			"sub0,azp0,sub0,azp0,false,false,sub0,azp0" // same values
+	})
+	void testMergeJwtClaims(String primarySub, String primaryAzp, String secondarySub, String secondaryAzp,
+			boolean allowSubjectOverride, boolean allowClaimsOverride, String expectedSub, String expectedAzp) throws Exception {
+		var primary = JWTClaimsSet.parse(Map.of(
+				OidcUtil.OIDC_SUBJECT, primarySub,
+				OidcUtil.OIDC_ISSUER, "iss1",
+				OidcUtil.OIDC_SESSION_ID, "session1",
+				OidcUtil.OIDC_AUTHORIZED_PARTY, primaryAzp
 		));
-		assertThat(OidcUtil.mergeJwtClaims(null, "primary", secondary, null), is(secondary));
-		var result = OidcUtil.mergeJwtClaims(primary, "primary", secondary, "secondary");
+		var secondary = JWTClaimsSet.parse(Map.of(
+				OidcUtil.OIDC_SUBJECT, secondarySub,
+				OidcUtil.OIDC_ISSUER, "iss1",
+				OidcUtil.OIDC_ACR, "acr1",
+				OidcUtil.OIDC_AUTHORIZED_PARTY, secondaryAzp
+		));
+		var result = OidcUtil.mergeJwtClaims(primary, "primary", secondary, "secondary",  allowClaimsOverride, allowSubjectOverride);
+		// depends on flags
+		assertThat(result.getSubject(), is(expectedSub));
+		assertThat(result.getClaim(OidcUtil.OIDC_AUTHORIZED_PARTY), is(expectedAzp));
 		// same
-		assertThat(result.getSubject(), is("sub1"));
-		// primary wins
-		assertThat(result.getClaim(OidcUtil.OIDC_AUTHORIZED_PARTY), is("party1"));
+		assertThat(result.getClaim(OidcUtil.OIDC_ISSUER), is("iss1"));
 		// primary or secondary only
 		assertThat(result.getClaim(OidcUtil.OIDC_ACR), is("acr1"));
 		assertThat(result.getClaim(OidcUtil.OIDC_SESSION_ID), is("session1"));
@@ -219,7 +222,7 @@ class OidcUtilTest {
 				  "sub": "user1"
 				}""";
 		var token = Base64Util.urlEncode(tokenHeader) + '.' + Base64Util.urlEncode(tokenPayload) + '.';
-		assertThrows(RequestDeniedException.class, () -> OidcUtil.verifyJwtToken(token, kid -> null, "clientId"));
+		assertThrows(RequestDeniedException.class, () -> OidcUtil.verifyJwtToken(token, kid -> Optional.empty(), "clientId"));
 	}
 
 }

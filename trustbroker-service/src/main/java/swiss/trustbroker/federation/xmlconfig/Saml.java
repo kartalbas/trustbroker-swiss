@@ -23,6 +23,7 @@ import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlAttribute;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlTransient;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -41,6 +42,26 @@ import swiss.trustbroker.common.saml.dto.SamlBinding;
 public class Saml implements Serializable {
 
 	/**
+	 * SAML protocol enabled.
+	 * <br/>
+	 * Default: true (for backwards compatibility)
+	 * <br/>
+	 * Note: At the moment, SAML needs to be enabled for OIDC as well due to the internal SAML hop done for OIDC.
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "enabled")
+	private Boolean enabled;
+
+	/**
+	 * Forward <code>ProtocolBinding</code> from RP tp CP.
+	 * <br/>
+	 * Default: true
+	 * @since 1.12.0
+	 */
+	@XmlAttribute(name="forwardRpProtocolBinding")
+	private Boolean forwardRpProtocolBinding;
+
+	/**
 	 * SAML protocol endpoint configuration.
 	 */
 	@XmlElement(name = "ProtocolEndpoints")
@@ -55,9 +76,9 @@ public class Saml implements Serializable {
 	/**
 	 * List of supported inbound SAML bindings.
 	 * <br/>
-	 * If empty list / null, all bindings are accepted.
-	 * <br/>
-	 * Default: null
+	 * Default: Bindings enabled in global configuration (since 1.14.0, before all bindings were allowed)
+	 *
+	 * @see swiss.trustbroker.config.dto.SamlProperties#getBindings()
 	 * @since 1.12.0
 	 */
 	@XmlElement(name = "SupportedBinding")
@@ -74,17 +95,6 @@ public class Saml implements Serializable {
 	 */
 	@XmlElement(name = "Signature")
 	private Signature signature;
-
-
-	/**
-	 * Forward <code>ProtocolBinding</code> from RP tp CP.
-	 * <br/>
-	 * Default: true
-	 * @since 1.12.0
-	 */
-	@Builder.Default
-	@XmlAttribute(name="forwardRpProtocolBinding")
-	private Boolean forwardRpProtocolBinding = Boolean.TRUE;
 
 	public Signature initializedSignature() {
 		if (signature == null) {
@@ -114,4 +124,13 @@ public class Saml implements Serializable {
 		return protocolEndpoints;
 	}
 
+	@XmlTransient
+	public boolean isEnabled() {
+		return enabled == null || enabled;
+	}
+
+	@XmlTransient
+	public boolean isForwardRpProtocolBinding() {
+		return forwardRpProtocolBinding == null || forwardRpProtocolBinding;
+	}
 }

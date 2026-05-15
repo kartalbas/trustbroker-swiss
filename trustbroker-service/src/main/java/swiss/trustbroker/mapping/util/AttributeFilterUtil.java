@@ -103,7 +103,6 @@ public class AttributeFilterUtil {
 			List<Definition> claimsForSource = AttributeFilterUtil.getClaimsForSource(claimsSelection,
 					ClaimSourceUtil.buildClaimSource(ClaimSource.IDM, idmQuery.getName()));
 			var joinConfAttributes = joinConfAttributes(userDetailsSelection, claimsForSource);
-
 			for (var configDefinition : joinConfAttributes) {
 				// Create the attribute if the Definition is in the config
 				var attributeValue = getAttributeValueIfRequiredForOutput(userDetailMap, configDefinition,
@@ -111,8 +110,9 @@ public class AttributeFilterUtil {
 				if (attributeValue.isPresent()) {
 					var definition = Definition.ofNames(configDefinition);
 					var source = attributeValue.get().getKey().getSource();
-					var mappers = attributeValue.get().getKey().getMappers();
 					var value = new ArrayList<>(attributeValue.get().getValue());
+					var mappers = configDefinition instanceof Definition def ?
+							def.getMappers() : attributeValue.get().getKey().getMappers();
 					definition.setSource(source);
 					definition.setMappers(mappers);
 					applyMultiQueryPolicy(multiQueryPolicy, responseAttrs, definition, value);

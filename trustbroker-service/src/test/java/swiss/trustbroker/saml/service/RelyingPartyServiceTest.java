@@ -43,7 +43,10 @@ import static org.mockito.Mockito.when;
 import java.io.UnsupportedEncodingException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,6 +77,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -125,6 +129,7 @@ import swiss.trustbroker.federation.xmlconfig.Encryption;
 import swiss.trustbroker.federation.xmlconfig.Flow;
 import swiss.trustbroker.federation.xmlconfig.HomeName;
 import swiss.trustbroker.federation.xmlconfig.IdmLookup;
+import swiss.trustbroker.federation.xmlconfig.OidcClient;
 import swiss.trustbroker.federation.xmlconfig.ProvisioningMode;
 import swiss.trustbroker.federation.xmlconfig.Qoa;
 import swiss.trustbroker.federation.xmlconfig.QoaComparison;
@@ -274,6 +279,7 @@ class RelyingPartyServiceTest extends ServiceTestBase {
 	@BeforeEach
 	void setupMocks() {
 		doReturn(CustomQoa.UNDEFINED_QOA).when(qoaService).getUnspecifiedAuthLevel();
+		doReturn(new SamlProperties()).when(trustBrokerProperties).getSaml();
 	}
 
 	@ParameterizedTest
@@ -637,7 +643,7 @@ class RelyingPartyServiceTest extends ServiceTestBase {
 
 		when(profileSelectionServiceFactory.getService(any())).thenReturn(mockProfileSelectionService);
 		doReturn(ProfileSelectionResult.empty()).when(mockProfileSelectionService).doInitialProfileSelection(
-				ProfileSelectionData.builder().exchangeId(RELAY_STATE).oidcClientId(CLIENT_ID).build(),
+				ProfileSelectionData.builder().exchangeId(RELAY_STATE).oidcClientId(CLIENT_ID).ignoreEmptyProfiles(true).build(),
 				relyingParty, cpResponse, stateData);
 		var result = relyingPartyService.sendSuccessSamlResponseToRp(outputServices, responseData, stateData, null,
 				mockHttpRequest, mockHttpResponse);
@@ -788,7 +794,7 @@ class RelyingPartyServiceTest extends ServiceTestBase {
 		doReturn(arResult)
 				.when(accessRequestService).performAccessRequestIfRequired(eq(httpData), eq(relyingParty), eq(stateData), any());
 		doReturn(ProfileSelectionResult.empty()).when(mockProfileSelectionService).doInitialProfileSelection(
-				ProfileSelectionData.builder().exchangeId(RELAY_STATE).oidcClientId(CLIENT_ID).build(),
+				ProfileSelectionData.builder().exchangeId(RELAY_STATE).oidcClientId(CLIENT_ID).ignoreEmptyProfiles(true).build(),
 				relyingParty, cpResponse, stateData);
 
 		var result = relyingPartyService.sendResponseWithSamlResponseFromCp(outputServices, responseData, cpResponse,
@@ -1000,6 +1006,93 @@ class RelyingPartyServiceTest extends ServiceTestBase {
 		assertThat(ex.getInternalMessage(), CoreMatchers.containsString(RP_ISSUER_ID));
 	}
 
+	@Test
+	void testGetTokenExchangeUserData() {
+		var claimsParty = givenClaimsParty();
+		var relyingParty = givenMockedRelyingParty(false);
+		var firstNameDef = Definition.ofNameAndSource(CoreAttributeName.FIRST_NAME, "CP");
+		firstNameDef.setNamespaceUri(CoreAttributeName.FIRST_NAME.getName());
+		firstNameDef.setOidcNames(CoreAttributeName.FIRST_NAME.getName());
+		List<Definition> definitions = new ArrayList<>(relyingParty.getClaimsSelection().getDefinitions());
+		definitions.add(firstNameDef);
+		relyingParty.setClaimsSelection(AttributesSelection.builder().definitions(definitions).build());
+		// missing tokenClaims
+		List<String> subjectAcrs = new ArrayList<>();
+		assertThrows(OAuth2AuthenticationException.class, () -> relyingPartyService.getTokenExchangeUserData(null,
+				null, relyingParty, claimsParty, null, null, subjectAcrs));
+
+		doReturn(claimsParty).when(relyingPartySetupService).getClaimsProviderSetupByIssuerId(CP_ISSUER_ID, "");
+		doReturn(relyingParty).when(relyingPartySetupService).getRelyingPartyByIssuerIdOrReferrer(RP_ISSUER_ID, null);
+		doReturn(new OidcProperties()).when(trustBrokerProperties).getOidc();
+		doReturn(givenIdmResult()).when(idmQueryService).getAttributesAudited(any(), any(), any(), any());
+		doReturn(List.of("mappedOidcAttribute")).when(claimsMapperService).applyMappers(any(), any(), any());
+		doReturn(Optional.of(claimsParty)).when(relyingPartySetupService).getClaimsProviderSetupByIssuerId(any());
+		var tokenClaims = givenOidcClaims();
+		var cpAttributes = new HashMap<>(Map.of(
+				Definition.ofName(CoreAttributeName.FIRST_NAME), List.of("mockFirstName")
+		));
+		var resultUserData = relyingPartyService.getTokenExchangeUserData(tokenClaims,
+				cpAttributes, relyingParty, claimsParty, OidcClient.builder().id("rpOidcClient").build(), null, subjectAcrs);
+		assertNotNull(resultUserData.get("sub"));
+		assertEquals("mappedOidcAttribute", resultUserData.get("FirstName"));
+		assertEquals("mappedOidcAttribute", resultUserData.get("locality"));
+	}
+
+	private Optional<IdmResult> givenIdmResult() {
+		var result = IdmResult.builder()
+							  .build();
+		result.getUserDetails().putAll(givenUserDetails());
+		return Optional.of(result);
+	}
+
+	private static Map<Definition, List<String>> givenUserDetails() {
+		Map<Definition, List<String>> userDetails = new LinkedHashMap<>();
+		var email = Definition.builder()
+							  .name(CoreAttributeName.EMAIL.getName())
+							  .namespaceUri(CoreAttributeName.EMAIL.getNamespaceUri())
+							  .source("IDM:TENANT")
+							  .build();
+		var locality = Definition.builder()
+								 .name(CoreAttributeName.LOCALITY.getName())
+								 .namespaceUri(CoreAttributeName.LOCALITY.getNamespaceUri())
+								 .source("IDM:IDENTITY")
+								 .build();
+		userDetails.put(email, new ArrayList<>(Arrays.asList("user@trustbroker.swiss")));
+		userDetails.put(locality, new ArrayList<>(Arrays.asList("locality")));
+
+		return userDetails;
+	}
+
+	private static ClaimsParty givenClaimsParty() {
+		return ClaimsParty.builder()
+						  .id(CP_ISSUER_ID)
+						  .homeName(HomeName.builder()
+											.value("name")
+											.build())
+						  .originalIssuer("originalIssuer")
+						  .attributesSelection(AttributesSelection.builder()
+																  .definitions(List.of(Definition.ofName(CoreAttributeName.FIRST_NAME)))
+																  .build())
+						  .ssoUrl("ssoURL").build();
+	}
+
+	private Map<String, Object> givenOidcClaims() {
+		// using array
+		var arrayJson = new HashMap<String, Object>();
+		arrayJson.put("mrole", List.of("mrole1", "mrole2").toArray());
+		// using list (same as array in JSON)
+		var listJson = new HashMap<String, Object>();
+		listJson.put("nrole", List.of("nrole1", "nrole2"));
+		return new HashMap<>(Map.of(
+				"sub", "dummySubject",
+				// expected result of the script aggregating attributes
+				"role", List.of("role1", "role2", "frole3", "frole4", "prole5", "prole6"),
+				// check availability of JSON type system, bot have the same interface
+				"arrayJson", arrayJson,
+				"listJson", listJson
+		));
+	}
+
 	private CpResponse givenCpResponse() {
 		var cpResponse = givenCpResponse(CP_ISSUER_ID, CLIENT_EXT_ID, HOME_NAME, USER_NAME_ID, false);
 		cpResponse.setRpDestination(DESTINATION_URL);
@@ -1059,9 +1152,18 @@ class RelyingPartyServiceTest extends ServiceTestBase {
 	}
 
 	private RelyingParty givenMockedRelyingParty(boolean useArtifactBinding) {
+		var localityDef = Definition.ofNameAndSource(CoreAttributeName.LOCALITY, "IDM:IDENTITY");
+		localityDef.setOidcNames("locality");
+		localityDef.setNamespaceUri(CoreAttributeName.LOCALITY.getNamespaceUri());
 		var relyingParty = RelyingParty.builder()
-				.id(RP_ISSUER_ID)
-				.build();
+									   .id(RP_ISSUER_ID)
+									   .attributesSelection(AttributesSelection.builder()
+																			   .definitions(List.of(Definition.ofName(CoreAttributeName.FIRST_NAME)))
+																			   .build())
+									   .claimsSelection(AttributesSelection.builder()
+																			   .definitions(List.of(localityDef))
+																			   .build())
+									   .build();
 		if (useArtifactBinding) {
 			relyingParty.setSaml(Saml.builder()
 					.artifactBinding(ArtifactBinding.builder().outboundMode(ArtifactBindingMode.REQUIRED).build())
@@ -1222,7 +1324,7 @@ class RelyingPartyServiceTest extends ServiceTestBase {
 		notification.setEncodedUrl(SLO_URL);
 		doReturn(new SecurityChecks()).when(trustBrokerProperties).getSecurity();
 
-		doReturn(new SloResponseParameters(Collections.emptyMap(), false))
+		doReturn(new SloResponseParameters(Collections.emptyMap(), false, null))
 				.when(ssoService).buildSloResponseParameters(relyingPartySso, REFERRER, Collections.emptySet(), nameId, null, null);
 
 		request.setCookies(cookie, cookie2);

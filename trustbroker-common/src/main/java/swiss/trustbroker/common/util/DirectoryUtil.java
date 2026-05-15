@@ -170,4 +170,14 @@ public class DirectoryUtil {
 		var url = DirectoryUtil.class.getClassLoader().getResource(keystorePath);
 		return url != null;
 	}
+
+
+	// configs may only contain the path relative to a directory
+	public static File absoluteFile(String basePath, String filePath) {
+		var result = new File(filePath);
+		if (result.isAbsolute()) {
+			return result;
+		}
+		return new File(basePath, filePath);
+	}
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelyingPartySetup>
+
+	<RelyingParty id="urn:test:MOCKRP-PARAMS" base="ProfileRP_Standard.xml">
+		<ClientName>client@${spring.application.name}/1.0</ClientName>
+		<ApplicationName>${spring.application.name}</ApplicationName>
+		<BillingId>${invalid ${not-found}${spring.application.name} }</BillingId>
+		<IDMLookup >
+			<IDMQuery name="LDAP">
+				<AppFilter>(&amp;(prop3=${query1.prop1})(prop4=${query1.prop2})</AppFilter>
+			</IDMQuery>
+		</IDMLookup>
+	</RelyingParty>
+
+</RelyingPartySetup>

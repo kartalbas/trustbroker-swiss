@@ -16,7 +16,11 @@
 package swiss.trustbroker.common.exception;
 
 import java.io.IOException;
+import java.util.function.Function;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public class ExceptionUtil {
 
 	public static final String BROKEN_PIPE = "Broken pipe";
@@ -51,4 +55,12 @@ public class ExceptionUtil {
 		return false;
 	}
 
+	public static void logOrThrow(String message, boolean tryOnly, Function<String, TrustBrokerException> constructor) {
+		if (tryOnly) {
+			log.error(message);
+		}
+		else {
+			throw constructor.apply(message);
+		}
+	}
 }

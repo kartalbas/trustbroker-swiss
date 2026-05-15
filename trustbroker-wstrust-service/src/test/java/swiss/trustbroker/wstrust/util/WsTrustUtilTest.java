@@ -17,6 +17,7 @@ package swiss.trustbroker.wstrust.util;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Collections;
 import java.util.List;
@@ -26,8 +27,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.opensaml.core.xml.util.XMLObjectSupport;
 import org.opensaml.soap.wstrust.WSTrustConstants;
 import org.springframework.mock.web.MockHttpServletRequest;
+import swiss.trustbroker.common.exception.RequestDeniedException;
 import swiss.trustbroker.common.saml.util.SamlInitializer;
 import swiss.trustbroker.config.dto.NetworkConfig;
 
@@ -80,10 +83,18 @@ class WsTrustUtilTest {
 	}
 
 	@ParameterizedTest
-	@CsvSource(value = { "testAddress,false", "testAddress,true", "null,false" }, nullValues = "null")
-	void getEndpointReferenceAddress(String address, boolean wsa) {
+	@CsvSource(value = { "testAddress,false", "testAddress,true" })
+	void getAddressFromRequest(String address, boolean wsa) throws Exception {
 		var request = WsTrustTestUtil.givenRst(WSTrustConstants.WSA_ACTION_RST_ISSUE, address, wsa);
-		assertThat(WsTrustUtil.getEndpointReferenceAddress(request), is(address));
+		XMLObjectSupport.getMarshaller(request).marshall(request); // needs DOM
+		assertThat(WsTrustUtil.getAddressFromRequest(request), is(address));
+	}
+
+	@Test
+	void missingAddressFromRequest() throws Exception {
+		var request = WsTrustTestUtil.givenRst(WSTrustConstants.WSA_ACTION_RST_ISSUE, null, false);
+		XMLObjectSupport.getMarshaller(request).marshall(request); // needs DOM
+		assertThrows(RequestDeniedException.class, () -> WsTrustUtil.getAddressFromRequest(request));
 	}
 
 	@Test

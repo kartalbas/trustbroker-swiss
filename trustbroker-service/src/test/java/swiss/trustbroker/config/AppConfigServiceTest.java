@@ -132,7 +132,7 @@ class AppConfigServiceTest {
 		assertDoesNotThrow(() ->
 				RelyingPartySetupUtil.loadRelyingParty(
 						relyingPartySetup.getRelyingParties(), LATEST_INVALID_DEFINITION_PATH, LATEST_INVALID_DEFINITION_PATH,
-						properties, Collections.emptyList(), scriptService, claimsProviderSetup, null));
+						properties, Collections.emptyList(), scriptService, claimsProviderSetup, null, null));
 		var rp = relyingPartySetup.getRelyingParties().get(0);
 		assertEquals(FeatureEnum.INVALID, rp.getEnabled());
 	}
@@ -145,7 +145,7 @@ class AppConfigServiceTest {
 		assertDoesNotThrow(() ->
 				RelyingPartySetupUtil.loadRelyingParty(
 						relyingPartySetup.getRelyingParties(), LATEST_INVALID_DEFINITION_PATH, LATEST_INVALID_DEFINITION_PATH,
-						properties, Collections.emptyList(), scriptService, claimsProviderSetup, null));
+						properties, Collections.emptyList(), scriptService, claimsProviderSetup, null, null));
 		var rp = relyingPartySetup.getRelyingParties().get(0);
 		// after RelyingPartySetupUtils validation, it is still valid
 		assertEquals(FeatureEnum.TRUE, rp.getEnabled());
@@ -155,7 +155,7 @@ class AppConfigServiceTest {
 
 	private RelyingPartySetup loadRelyingParty(String fileName) {
 		var file = SamlTestBase.fileFromClassPath(LATEST_INVALID_DEFINITION_PATH + fileName);
-		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(file);
+		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(file, null);
 		assertThat(relyingPartySetup.getRelyingParties(), hasSize(1));
 		var rp = relyingPartySetup.getRelyingParties().get(0);
 		// after loading, it is still valid

@@ -15,8 +15,11 @@
 
 package swiss.trustbroker.sso.dto;
 
+import java.util.List;
+
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.tuple.Pair;
 import swiss.trustbroker.federation.xmlconfig.SloResponse;
 
 /**
@@ -29,6 +32,8 @@ public class SloNotification {
 	private final SloResponse slo;
 
 	private String encodedUrl;
+
+	private List<Pair<String, String>> encodedQueryParameters;
 
 	private String samlLogoutRequest;
 

@@ -197,10 +197,15 @@ public class OidcMockTestData {
 										  .jwkEndpoint(URI.create(JWKS_ENDPOINT))
 										  .userinfoEndpoint(URI.create(USERINFO_ENDPOINT))
 										  .authenticationMethods(authenticationMethods)
+										  .jwkSet(new JWKSet())
 										  .build();
 	}
 
 	public static OidcClient givenClient() {
+		return givenClient(List.of(OidcClaimsSource.ID_TOKEN, OidcClaimsSource.USERINFO));
+	}
+
+	public static OidcClient givenClient(List<OidcClaimsSource> claimsSources) {
 		var protocolEndpoints = ProtocolEndpoints.builder().metadataUrl(METADATA_URL).build();
 		return OidcClient.builder()
 						 .id(CLIENT_ID)
@@ -208,8 +213,7 @@ public class OidcMockTestData {
 						 .protocolEndpoints(protocolEndpoints)
 						 .clientSecret(CLIENT_SECRET_PLAIN + CLIENT_SECRET)
 						 .claimsSources(OidcClaimsSources.builder()
-														 .claimsSourceList(
-																 List.of(OidcClaimsSource.ID_TOKEN, OidcClaimsSource.USERINFO))
+														 .claimsSourceList(claimsSources)
 														 .build())
 						 .build();
 	}

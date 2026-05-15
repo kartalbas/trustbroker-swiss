@@ -217,17 +217,17 @@ public class TrustBrokerProperties {
 	 * WS-Fed protocol configuration.
 	 * @since 1.13.0
 	 */
-	private WsFedConfig enabled = new WsFedConfig();
+	private WsFedConfig wsfed = new WsFedConfig();
 
 	/**
 	 * SAML protocol configuration.
 	 */
-	private SamlProperties saml;
+	private SamlProperties saml = new SamlProperties();
 
 	/**
 	 * OIDC protocol configuration.
 	 */
-	private OidcProperties oidc;
+	private OidcProperties oidc = new OidcProperties();
 
 	/**
 	 * Security check configuration.

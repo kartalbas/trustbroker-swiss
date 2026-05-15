@@ -16,7 +16,6 @@
 package swiss.trustbroker.config.dto;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -26,7 +25,6 @@ import lombok.NoArgsConstructor;
  * @since 1.10.0
  */
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class LdapStoreConfig {
@@ -39,10 +37,21 @@ public class LdapStoreConfig {
 	private boolean enabled;
 
 	/**
-	 * Default value for undefined IDMQuery.AppFilter value
+	 * Default value for undefined IDMQuery.AppFilter value.
+	 * <br/>
+	 * Default: UNDEF (since 1.14.0)
 	 *
 	 * @since 1.13.0
 	 */
-	private String undefined;
+	private String undefined = "UNDEF";
+
+	/**
+	 * Default value for n2k separator.
+	 * <br/>
+	 * Default: ':'
+	 *
+	 * @since 1.14.0
+	 */
+	private String n2kSeparator = ":";
 
 }

@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -175,6 +176,8 @@ public class SsoService {
 	}
 
 	static final String VELOCITY_PARAM_XTB_SLO_NOTIFICATIONS = "XTBSloNotifications";
+
+	static final String VELOCITY_PARAM_XTB_SLO_SERIALIZE_NOFICIATIONS = "XTBSloSerializeNotifications";
 
 	static final String VELOCITY_PARAM_XTB_SLO_MAX_WAIT = "XTBSloMaxWaitMillis";
 
@@ -1516,6 +1519,9 @@ public class SsoService {
 				// encoded data needed for REDIRECT signature
 				result.setSamlLogoutRequest(SamlIoUtil.encodeSamlRedirectData(logoutRequest));
 				result.setSamlHttpMethod(HttpMethod.GET.name());
+				var split = WebUtil.splitQueryParameters(url, true);
+				url = split.getKey();
+				result.setEncodedQueryParameters(split.getValue());
 			}
 			if (relyingParty.requireSignedLogoutNotificationRequest()) {
 				setSignatureParameters(relyingParty, sloResponse, url, logoutRequest, result);
@@ -1670,7 +1676,9 @@ public class SsoService {
 				var calculatedSloUrl = calculateSloUrlForAcsUrl(relyingParty, response.getUrl(), acsUrl, response.matchAcUrl());
 				if (calculatedSloUrl != null) {
 					notification = new SloNotification(response);
-					notification.setEncodedUrl(HTMLEncoder.encodeForHTMLAttribute(calculatedSloUrl));
+					var split = WebUtil.splitQueryParameters(calculatedSloUrl, true);
+					notification.setEncodedUrl(HTMLEncoder.encodeForHTMLAttribute(split.getKey()));
+					notification.setEncodedQueryParameters(split.getValue());
 				}
 			}
 			responseMap.put(response, notification);
@@ -1805,8 +1813,10 @@ public class SsoService {
 		var hasNotifyTry = notifications.stream().anyMatch(slo -> slo.getSlo().getMode().isNotifyTry());
 		var notifyFailWait = notifications.isEmpty() ? 0 : 100; // just a short time to allow the browser to submit the requests
 		var minWait = hasNotifyTry ? trustBrokerProperties.getSloNotificationMinWaitMillis() : notifyFailWait;
-		log.debug("Velocity parameters: maxWait={} minWait={} count={} oidcRedirectUrl={}",
-				maxWait, minWait, notifications.size(), oidcRedirectUrl);
+		var serializeLogoutNotifications = relyingParty.getSso().serializeNotifications();
+		log.debug("Velocity parameters: maxWait={} minWait={} count={} oidcRedirectUrl={} serializeLogoutNotifications={}",
+				maxWait, minWait, notifications.size(), oidcRedirectUrl, serializeLogoutNotifications);
+		velocityParams.put(VELOCITY_PARAM_XTB_SLO_SERIALIZE_NOFICIATIONS, serializeLogoutNotifications);
 		velocityParams.put(VELOCITY_PARAM_XTB_SLO_MAX_WAIT, maxWait);
 		velocityParams.put(VELOCITY_PARAM_XTB_SLO_MIN_WAIT, minWait);
 		velocityParams.put(VELOCITY_PARAM_XTB_SLO_WAIT_FOR_COUNT, notifications.size());
@@ -1820,10 +1830,15 @@ public class SsoService {
 			}
 		}
 		if (redirectUrl != null) {
+			var split = WebUtil.splitQueryParameters(redirectUrl, true);
 			velocityParams.put(VelocityUtil.VELOCITY_PARAM_XTB_HTTP_METHOD, HttpMethod.GET.name());
-			velocityParams.put(VelocityUtil.VELOCITY_PARAM_ACTION, redirectUrl);
+			velocityParams.put(VelocityUtil.VELOCITY_PARAM_ACTION, split.getKey());
+			velocityParams.put(VelocityUtil.VELOCITY_PARAM_ADDITIONAL_FIELDS, split.getValue());
 		}
-		return new SloResponseParameters(velocityParams, redirectUrl != null);
+		var useHttpGet = redirectUrl != null;
+		// for OIDC, if we have no notifications, the caller can redirect to this URL directly:
+		var responseRedirectUrl = notifications.isEmpty() ? oidcRedirectUrl : null;
+		return new SloResponseParameters(velocityParams, useHttpGet, responseRedirectUrl);
 	}
 
 	private static List<SloNotification> getNotifications(Map<SloResponse, SloNotification> responseMap) {
@@ -1831,6 +1846,7 @@ public class SsoService {
 				.stream()
 				.filter(entry -> entry.getKey().getMode().isNotification())
 				.map(Map.Entry::getValue)
+				.filter(Objects::nonNull)
 				.toList();
 	}
 

@@ -19,6 +19,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.nimbusds.jwt.JWTClaimsSet;
 import lombok.AllArgsConstructor;
@@ -30,6 +31,7 @@ import swiss.trustbroker.common.util.OidcUtil;
 import swiss.trustbroker.federation.xmlconfig.ClaimsParty;
 import swiss.trustbroker.federation.xmlconfig.Definition;
 import swiss.trustbroker.homerealmdiscovery.util.DefinitionUtil;
+import swiss.trustbroker.homerealmdiscovery.util.RelyingPartyUtil;
 import swiss.trustbroker.mapping.service.ClaimsMapperService;
 import swiss.trustbroker.saml.dto.ClaimSource;
 
@@ -87,19 +89,22 @@ public class JwtClaimsService {
 		return defaultQoa != null ? List.of(defaultQoa) : Collections.emptyList();
 	}
 
-	public Map<Definition, List<String>> mapClaimsToAttributes(JWTClaimsSet claims, ClaimsParty claimsParty) {
+	public Map<Definition, List<String>> mapAndValidateClaimsToAttributes(Map<String, Object> claims, ClaimsParty claimsParty) {
 		Map<Definition, List<String>> attributes = new HashMap<>();
-		if (claimsParty.getAttributesSelection() == null
-				|| CollectionUtils.isEmpty(claimsParty.getAttributesSelection().getDefinitions())) {
+		var attributesSelection = claimsParty.getAttributesSelection();
+		if (attributesSelection == null
+				|| CollectionUtils.isEmpty(attributesSelection.getDefinitions())) {
 			return attributes;
 		}
-		var cpAttributeDefinitions = claimsParty.getAttributesSelection().getDefinitions();
-		for (var claim : claims.getClaims().entrySet()) {
+		var cpAttributeDefinitions = attributesSelection.getDefinitions();
+		for (var claim : claims.entrySet()) {
 			var name = claim.getKey();
 			var def = DefinitionUtil.findSingleValueByNameOrNamespace(name, null, cpAttributeDefinitions);
 			var definition = def.orElseGet(() -> Definition.ofNameAndSource(name, ClaimSource.CP.name()));
 			attributes.put(definition, convertClaimValues(definition, claim.getValue()));
 		}
+
+		RelyingPartyUtil.validateRequiredDefinitions(attributesSelection, attributes);
 		return attributes;
 	}
 
@@ -107,6 +112,9 @@ public class JwtClaimsService {
 		List<?> claimValues;
 		if (claimValue instanceof List<?> claimList) {
 			claimValues = claimList;
+		}
+		else if (claimValue instanceof Set<?> claimSet) {
+			claimValues = claimSet.stream().toList();
 		}
 		else if (claimValue == null) {
 			claimValues = Collections.emptyList();

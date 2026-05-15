@@ -164,20 +164,20 @@ class OidcMetadataCacheServiceTest {
 		var oidcProperties = new OidcProperties();
 		doReturn(oidcProperties).when(trustBrokerProperties).getOidc();
 
-		var jwk = service.getKey(cp, OidcMockTestData.KEY_ID);
+		var jwk = service.getKey(cp, OidcMockTestData.KEY_ID, null);
 
 		assertTrue(jwk.isPresent());
 		assertThat(jwk.get().getKeyID(), is(OidcMockTestData.KEY_ID));
 		verify(httpClient, times(2)).send(any(), any());
 
 		// verify access is done from cache - refresh not
-		jwk = service.getKey(cp, "unknown");
+		jwk = service.getKey(cp, "unknown", null);
 		assertTrue(jwk.isEmpty());
 		verify(httpClient, times(2)).send(any(), any());
 
 		// simulate re-fetch after refresh period
 		oidcProperties.setMinimumMetadataCacheTimeSecs(0);
-		jwk = service.getKey(cp, "unknown");
+		jwk = service.getKey(cp, "unknown", null);
 		assertTrue(jwk.isEmpty());
 		verify(httpClient, times(4)).send(any(), any());
 	}

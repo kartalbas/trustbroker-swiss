@@ -49,6 +49,14 @@ public class ProtocolEndpoints implements Serializable {
 	private String metadataUrl;
 
 	/**
+	 * Jwk endpoint url
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlElement(name = "JwkSetUrl")
+	private String jwkSetUrl;
+
+	/**
 	 * Proxy URL for these endpoints that overrides global default.
 	 * <br/>
 	 * Set to empty string to override global default to use no proxy.

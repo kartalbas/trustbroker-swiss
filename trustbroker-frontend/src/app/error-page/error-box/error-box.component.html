@@ -14,13 +14,13 @@
 -->
 <div class="{{ theme.name }} errorBoxContainer">
 	<div class="errorBoxTitleContainer">
-		<h2>
+		<h1>
 			@if (titleKey | hasTranslation | async) {
 				{{ titleKey | translate }}
 			} @else {
 				{{ "trustbroker.error.main.title.default" | translate }}
 			}
-		</h2>
+		</h1>
 	</div>
 	<div>
 		@if (textKey | hasTranslation | async) {

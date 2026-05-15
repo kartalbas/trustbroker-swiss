@@ -54,10 +54,12 @@ import swiss.trustbroker.common.util.WebUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.federation.xmlconfig.Certificates;
 import swiss.trustbroker.federation.xmlconfig.ClaimsParty;
+import swiss.trustbroker.federation.xmlconfig.CounterParty;
 import swiss.trustbroker.federation.xmlconfig.ProtocolEndpoints;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.saml.util.AssertionValidator;
+import swiss.trustbroker.saml.util.SamlValidationUtil;
 import swiss.trustbroker.util.CertificateUtil;
 
 @Service
@@ -99,17 +101,19 @@ public class ArtifactResolutionService {
 		SignatureValidationParameters signatureValidationParameters;
 		var referrer = WebUtil.getReferer(request);
 		var rp = relyingPartySetupService.getRelyingPartyByArtifactSourceIdOrReferrer(sourceId, referrer);
-		if (isRelyingPartyValid(rp)) {
-			peer = buildArtifactPeer(rp.get().getSamlProtocolEndpoints(), rp.get().getCertificates(), true);
-			signatureParameters = buildSignatureParameters(signArtifactResolve, rp.get());
-			signatureValidationParameters = buildSignatureValidationParameters(requireSignedArtifactResponse, rp.get());
+		if (isCounterPartyValid(rp)) {
+			var relyingParty = rp.orElseThrow(); // always present here
+			peer = buildArtifactPeer(relyingParty.getSamlProtocolEndpoints(), relyingParty.getCertificates(), true);
+			signatureParameters = buildSignatureParameters(signArtifactResolve, relyingParty);
+			signatureValidationParameters = buildSignatureValidationParameters(requireSignedArtifactResponse, relyingParty);
 		}
 		else {
 			var cp = relyingPartySetupService.getClaimsProviderByArtifactSourceIdOrReferrer(sourceId, referrer);
-			if (isClaimsPartyValid(cp)) {
-				peer = buildArtifactPeer(cp.get().getSamlProtocolEndpoints(), cp.get().getCertificates(), false);
-				signatureParameters = buildSignatureParameters(signArtifactResolve, cp.get());
-				signatureValidationParameters = buildSignatureValidationParameters(requireSignedArtifactResponse, cp.get());
+			if (isCounterPartyValid(cp)) {
+				var claimsParty = cp.orElseThrow(); // always present here
+				peer = buildArtifactPeer(claimsParty.getSamlProtocolEndpoints(), claimsParty.getCertificates(), false);
+				signatureParameters = buildSignatureParameters(signArtifactResolve, claimsParty);
+				signatureValidationParameters = buildSignatureValidationParameters(requireSignedArtifactResponse, claimsParty);
 			}
 			else {
 				throw new RequestDeniedException(String.format(
@@ -123,14 +127,14 @@ public class ArtifactResolutionService {
 		// could now check if it is OK to receive this message type from an RP or CP, but it should fail later anyway if wrong
 	}
 
-	static boolean isClaimsPartyValid(Optional<ClaimsParty> cp) {
-		return cp.isPresent() && cp.get().getSamlProtocolEndpoints() != null &&
-				cp.get().isValidInboundBinding(SamlBinding.ARTIFACT);
-	}
-
-	static boolean isRelyingPartyValid(Optional<RelyingParty> rp) {
-		return rp.isPresent() && rp.get().getSamlProtocolEndpoints() != null &&
-				rp.get().isValidInboundBinding(SamlBinding.ARTIFACT);
+	<T extends CounterParty> boolean isCounterPartyValid(Optional<T> cp) {
+		if (cp.isEmpty()) {
+			return false;
+		}
+		if (!SamlValidationUtil.validateProtocolRestrictions(cp.get(), SamlBinding.ARTIFACT, null, trustBrokerProperties, true)) {
+			return false;
+		}
+		return cp.get().getSamlProtocolEndpoints() != null;
 	}
 
 	private ArtifactPeer buildArtifactPeer(ProtocolEndpoints endpoints, Certificates certificates, boolean isRp) {

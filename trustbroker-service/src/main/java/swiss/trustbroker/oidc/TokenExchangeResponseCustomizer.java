@@ -88,7 +88,7 @@ public class TokenExchangeResponseCustomizer implements OAuth2TokenCustomizer<Jw
 				context.getClaims().claim(key, value);
 			}
 			else if (value instanceof Collection<?> values) {
-				if(values.size() == 1) {
+				if (values.size() == 1) {
 					context.getClaims().claim(key, String.valueOf(values.iterator().next()));
 				} else {
 					List<String> safe = ((Collection<?>) values).stream()

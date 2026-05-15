@@ -23,6 +23,8 @@ public interface ProfileSelectionProperties {
 
 	String getProfileSelector();
 
+	String getOrganizationSelector();
+
 	String getDisplayName();
 
 	boolean isProfileSelectionEnabled();
@@ -46,4 +48,6 @@ public interface ProfileSelectionProperties {
 	String getFilterRoleConfiguration();
 
 	List<String> getDisplayClaims();
+
+	List<String> getTranslationAttributes();
 }

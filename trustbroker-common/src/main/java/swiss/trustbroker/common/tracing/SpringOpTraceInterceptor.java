@@ -118,7 +118,7 @@ public class SpringOpTraceInterceptor {
 	 */
 	private static String genClientId(String username) {
 		var clientId = new StringBuilder();
-		var threadId = String.valueOf(Thread.currentThread().getId());
+		var threadId = String.valueOf(Thread.currentThread().threadId());
 		var time = String.valueOf(System.currentTimeMillis());
 		var uniqueId = UUID.randomUUID().toString();
 		// simulate a clientId

@@ -16,6 +16,7 @@
 package swiss.trustbroker.wstrust.validator;
 
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,12 +27,14 @@ import org.opensaml.soap.wstrust.KeyType;
 import org.opensaml.soap.wstrust.RequestSecurityToken;
 import org.opensaml.soap.wstrust.RequestType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import swiss.trustbroker.common.exception.RequestDeniedException;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.config.dto.WsTrustConfig;
 import swiss.trustbroker.federation.xmlconfig.ClaimsParty;
 import swiss.trustbroker.federation.xmlconfig.CounterParty;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
+import swiss.trustbroker.federation.xmlconfig.WsTrustBinding;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.script.service.ScriptService;
 import swiss.trustbroker.wstrust.dto.SoapMessageHeader;
@@ -68,9 +71,9 @@ public class WsTrustIssueValidator extends WsTrustBaseValidator {
 		return true;
 	}
 
-	private boolean enabled() {
-		var properties = getTrustBrokerProperties();
-		return properties.getWstrust() != null && properties.getWstrust().isIssueEnabled();
+	@Override
+	protected WsTrustBinding getBinding() {
+		return WsTrustBinding.ISSUE;
 	}
 
 	@Override
@@ -84,9 +87,12 @@ public class WsTrustIssueValidator extends WsTrustBaseValidator {
 		var headerAssertion = requestHeader.getAssertion();
 		var claimsParty = getIssuingClaimsParty(headerAssertion);
 		var relyingParty = getRstRelyingParty(requestSecurityToken);
+		// each side can provide the WsTrust config default for the other:
+		validateProtocolRestrictions(claimsParty, relyingParty);
+		validateProtocolRestrictions(relyingParty, claimsParty);
 		var requireSignedRequest = requireSignedRequest(claimsParty, relyingParty, getTrustBrokerProperties().getWstrust());
-		List<Credential> rpTrustCredentials = relyingParty != null ? relyingParty.getRpTrustCredentials() : null;
-		validateSignature(requestHeader, requireSignedRequest, rpTrustCredentials);
+		List<Credential> messageTrustCredentials = getMessageSignerCredentials(relyingParty, claimsParty);
+		validateSignature(requestHeader, requireSignedRequest, messageTrustCredentials);
 		var requireSignedAssertion = requireSignedAssertion(claimsParty, relyingParty, getTrustBrokerProperties().getWstrust());
 		validateAssertion(headerAssertion, null, Optional.of(claimsParty.getCpTrustCredential()), requireSignedAssertion,
 				requestSecurityToken, claimsParty, relyingParty);
@@ -97,17 +103,26 @@ public class WsTrustIssueValidator extends WsTrustBaseValidator {
 					"Wrong KeyType in RSTR with assertionID='%s' keyType='%s' expectedKeyType='%s'",
 					headerAssertion != null ? headerAssertion.getID() : null, keyType, KeyType.BEARER));
 		}
-		var addressFromRequest = WsTrustUtil.getAddressFromRequest(requestSecurityToken);
 
 		return WsTrustValidationResult.builder()
 									  .requestType(REQUEST_TYPE)
 									  .validatedAssertion(headerAssertion)
 									  .recomputeAttributes(true)
-									  .issuerId(addressFromRequest)
+									  .issuerId(relyingParty.getId())
 									  .recipientId(null) // not set
 									  .useAssertionLifetime(false)
 									  .createResponseCollection(true)
 									  .build();
+	}
+
+	// sender and signer of SOAP can be CP or RP
+	private static List<Credential> getMessageSignerCredentials(RelyingParty relyingParty, ClaimsParty claimsParty) {
+		if (CollectionUtils.isEmpty(relyingParty.getRpTrustCredentials())) {
+			return claimsParty.getCpTrustCredential();
+		}
+		List<Credential> messageTrustCredentials = new ArrayList<>(claimsParty.getCpTrustCredential());
+		messageTrustCredentials.addAll(relyingParty.getRpTrustCredentials());
+		return messageTrustCredentials;
 	}
 
 	@Override

@@ -20,6 +20,7 @@ import java.util.List;
 
 import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
+import jakarta.xml.bind.annotation.XmlAttribute;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import lombok.AllArgsConstructor;
@@ -29,6 +30,11 @@ import lombok.NoArgsConstructor;
 
 /**
  * Error flow control configuration.
+ *
+ * Breaking changes:
+ * <ul>
+ *     <li>With 1.14.0 <code>enabled</code> was corrected from element to attribute.</li>
+ * </ul>
  */
 @XmlRootElement(name = "FlowPolicies")
 @XmlAccessorType(XmlAccessType.FIELD)
@@ -41,7 +47,7 @@ public class FlowPolicies implements Serializable {
 	/**
 	 * Enable this configuration.
 	 */
-	@XmlElement(name = "enabled")
+	@XmlAttribute(name = "enabled")
 	@Builder.Default
 	private Boolean enabled = Boolean.TRUE;
 

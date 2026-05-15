@@ -29,6 +29,7 @@ import swiss.trustbroker.common.util.HttpUtil;
 import swiss.trustbroker.common.util.JsonUtil;
 import swiss.trustbroker.common.util.OidcUtil;
 import swiss.trustbroker.common.util.StringUtil;
+import swiss.trustbroker.common.util.WebUtil;
 import swiss.trustbroker.federation.xmlconfig.AuthorizationGrantType;
 import swiss.trustbroker.federation.xmlconfig.Certificates;
 import swiss.trustbroker.federation.xmlconfig.ClientAuthenticationMethod;
@@ -62,7 +63,7 @@ class OidcTokenService {
 			log.debug("Using client_secret_post");
 		}
 		else {
-			var authorization = OidcUtil.getBasicAuthorizationHeader(client.getId(), configuration.getClientSecret());
+			var authorization = WebUtil.getBasicAuthorizationHeader(client.getId(), configuration.getClientSecret());
 			headers.put(HttpHeaders.AUTHORIZATION, authorization);
 			if (clientSecretBasicSupported) {
 				log.debug("Using client_secret_basic");
@@ -78,13 +79,14 @@ class OidcTokenService {
 			log.debug("HTTP POST to tokenEndpoint={} redirectUri={} params={}",
 					tokenEndpoint, redirectUri, StringUtil.maskSecrets(params.toString(), clientSecretPost, code));
 		}
-		var httpClient = httpClientProvider.createHttpClient(client, certificates, tokenEndpoint);
-		var response = HttpUtil.getHttpFormPostString(httpClient, tokenEndpoint, params, headers);
-		if (response.isEmpty()) {
-			throw new TechnicalException(String.format("oidcClientId=%s failed POST to tokenEndpoint=%s",
-					client.getId(), tokenEndpoint));
+		try (var httpClient = httpClientProvider.createHttpClient(client, certificates, tokenEndpoint)) {
+			var response = HttpUtil.getHttpFormPostString(httpClient, tokenEndpoint, params, headers);
+			if (response.isEmpty()) {
+				throw new TechnicalException(String.format("oidcClientId=%s failed POST to tokenEndpoint=%s",
+						client.getId(), tokenEndpoint));
+			}
+			return JsonUtil.parseJsonObject(response.get(), false);
 		}
-		return JsonUtil.parseJsonObject(response.get(), false);
 	}
 
 	private static Map<String, String> buildTokenRequestParameters(OidcClient client, String code,

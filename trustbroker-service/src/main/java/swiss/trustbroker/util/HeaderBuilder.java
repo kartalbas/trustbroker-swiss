@@ -45,6 +45,12 @@ public class HeaderBuilder {
 
 	public  static final String CONTENT_TYPE_OPTIONS = "X-Content-Type-Options";
 
+	public static final String ACCESS_CONTROL_REQUEST_PRIVATE_NETWORK = "Access-Control-Request-Private-Network";
+
+	public  static final String ACCESS_CONTROL_ALLOW_PRIVATE_NETWORK = "Access-Control-Allow-Private-Network";
+
+	public static final String ACCESS_CONTROL_PRIVATE_NETWORK = "true";
+
 	private final HttpServletRequest request;
 
 	private final HttpServletResponse response;
@@ -184,6 +190,12 @@ public class HeaderBuilder {
 
 	public HeaderBuilder frontendCsp() {
 		return csp(properties.getCsp().getFrontend(), Collections.emptySet(), null);
+	}
+
+	// https://wicg.github.io/private-network-access/
+	public HeaderBuilder allowPrivateNetwork() {
+		setHeader(ACCESS_CONTROL_ALLOW_PRIVATE_NETWORK, ACCESS_CONTROL_PRIVATE_NETWORK);
+		return this;
 	}
 
 	private void setHeader(String name, String value) {

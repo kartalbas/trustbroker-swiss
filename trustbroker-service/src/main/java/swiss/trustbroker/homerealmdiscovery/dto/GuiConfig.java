@@ -35,4 +35,6 @@ public class GuiConfig {
 	private CookieConfig languageCookie;
 
 	private CookieConfig announcementCookie;
+
+	private CookieConfig claimsProviderNoticeCookie;
 }

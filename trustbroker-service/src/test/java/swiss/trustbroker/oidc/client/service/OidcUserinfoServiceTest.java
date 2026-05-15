@@ -17,6 +17,7 @@ package swiss.trustbroker.oidc.client.service;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doReturn;
@@ -34,8 +35,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.util.OidcUtil;
 import swiss.trustbroker.federation.xmlconfig.Certificates;
+import swiss.trustbroker.federation.xmlconfig.OidcClaimsSource;
 import swiss.trustbroker.federation.xmlconfig.OidcClient;
 import swiss.trustbroker.oidc.OidcHttpClientProvider;
 import swiss.trustbroker.oidc.OidcMockTestData;
@@ -58,28 +61,43 @@ class OidcUserinfoServiceTest {
 
 	@ParameterizedTest
 	@MethodSource
-	void fetchUserInfo(String responseString, String contentType, int expectedAttributes) throws Exception {
-		var client = OidcMockTestData.givenClient();
+	void fetchUserInfo(String responseString, List<OidcClaimsSource> claimsSources,
+			String contentType, int expectedAttributes, Class<Exception> expectedException) throws Exception {
+		var client = OidcMockTestData.givenClient(claimsSources);
 		var certificates = Certificates.builder().build();
 		var configuration = OidcMockTestData.givenConfiguration();
 		mockUserinfoResponse(client, certificates, configuration, responseString, contentType);
 
-		var result = oidcUserinfoService
-				.fetchUserInfo(client, certificates, configuration, OidcMockTestData.ACCESS_TOKEN,
-						OidcMockTestData::givenJwk);
+		if (expectedException == null) {
+			var result = oidcUserinfoService
+					.fetchUserInfo(client, certificates, configuration, OidcMockTestData.ACCESS_TOKEN,
+							OidcMockTestData::givenJwk);
 
-		assertThat(result.toJSONObject().size(), is(expectedAttributes));
-		assertThat(result.getSubject(), is(OidcMockTestData.SUBJECT));
+			assertThat(result.toJSONObject()
+							 .size(), is(expectedAttributes));
+			assertThat(result.getSubject(), is(OidcMockTestData.SUBJECT));
+		}
+		else {
+			assertThrows(expectedException, () -> oidcUserinfoService.fetchUserInfo(
+					client, certificates, configuration, OidcMockTestData.ACCESS_TOKEN, OidcMockTestData::givenJwk));
+		}
 	}
 
 	static Object[][] fetchUserInfo() {
 		return new Object[][] {
-				{ OidcMockTestData.USERINFO_RESPONSE, MediaType.APPLICATION_JSON_VALUE, OidcMockTestData.USERINFO_ATTRIBUTES },
-				{ OidcMockTestData.ID_TOKEN, OidcUtil.CONTENT_TYPE_JWT, OidcMockTestData.TOKEN_ATTRIBUTES },
-				{ OidcMockTestData.USERINFO_RESPONSE, MediaType.APPLICATION_JSON_VALUE + ";charset=UTF-8",
-						OidcMockTestData.USERINFO_ATTRIBUTES },
-				{ OidcMockTestData.USERINFO_RESPONSE, MediaType.APPLICATION_JSON_VALUE + "; charset=UTF-8",
-						OidcMockTestData.USERINFO_ATTRIBUTES }
+				{ OidcMockTestData.USERINFO_RESPONSE, List.of(OidcClaimsSource.ID_TOKEN, OidcClaimsSource.USERINFO),
+						MediaType.APPLICATION_JSON_VALUE, OidcMockTestData.USERINFO_ATTRIBUTES, null },
+				// plain JSON not accepted:
+				{ OidcMockTestData.USERINFO_RESPONSE, List.of(OidcClaimsSource.ID_TOKEN, OidcClaimsSource.USERINFO_JWT),
+						MediaType.APPLICATION_JSON_VALUE, OidcMockTestData.USERINFO_ATTRIBUTES, TechnicalException.class },
+				{ OidcMockTestData.ID_TOKEN, List.of(OidcClaimsSource.ID_TOKEN, OidcClaimsSource.USERINFO),
+						OidcUtil.CONTENT_TYPE_JWT, OidcMockTestData.TOKEN_ATTRIBUTES, null },
+				{ OidcMockTestData.ID_TOKEN, List.of(OidcClaimsSource.ID_TOKEN, OidcClaimsSource.USERINFO_JWT),
+						OidcUtil.CONTENT_TYPE_JWT, OidcMockTestData.TOKEN_ATTRIBUTES, null },
+				{ OidcMockTestData.USERINFO_RESPONSE, List.of(OidcClaimsSource.ID_TOKEN, OidcClaimsSource.USERINFO),
+						MediaType.APPLICATION_JSON_VALUE + ";charset=UTF-8", OidcMockTestData.USERINFO_ATTRIBUTES, null },
+				{ OidcMockTestData.USERINFO_RESPONSE, List.of(OidcClaimsSource.ID_TOKEN, OidcClaimsSource.USERINFO),
+						MediaType.APPLICATION_JSON_VALUE + "; charset=UTF-8", OidcMockTestData.USERINFO_ATTRIBUTES, null }
 		};
 	}
 

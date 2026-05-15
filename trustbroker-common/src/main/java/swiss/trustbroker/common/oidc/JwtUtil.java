@@ -46,9 +46,12 @@ import com.nimbusds.jwt.JWT;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.JWTParser;
 import com.nimbusds.jwt.SignedJWT;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.jcajce.provider.asymmetric.ec.BCECPrivateKey;
 import org.opensaml.security.credential.Credential;
+import org.springframework.security.oauth2.core.oidc.IdTokenClaimNames;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -61,6 +64,7 @@ import swiss.trustbroker.common.util.OidcUtil;
 import swiss.trustbroker.common.util.StringUtil;
 
 @Slf4j
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class JwtUtil {
 
 	private static final int OPAQUE_TOKEN_PARTS = 1;
@@ -294,6 +298,25 @@ public class JwtUtil {
 		}
 		catch (ParseException | JOSEException e) {
 			throw new TechnicalException("Could not parse DPoP JWK header", e);
+		}
+	}
+
+	public static void addDPopClaimToClaimMap(Map<String, Object> tokenData, Jwt dPoPProof) {
+		if (dPoPProof == null) {
+			return;
+		}
+		tokenData.put(OidcUtil.OIDC_TOKEN_CNF, JwtUtil.getCnfValueFromHeader(dPoPProof.getHeaders()));
+	}
+
+	public static void addSidToClaimMap(Map<String, Object> tokenData, String sessionId) {
+		if (sessionId != null) {
+			tokenData.put(OidcUtil.OIDC_SID, sessionId);
+		}
+	}
+
+	public static void addAuthTimeToClaimMap(Map<String, Object> tokenData, Map<String, Object> subjectTokenClaims) {
+		if (subjectTokenClaims != null && subjectTokenClaims.get(IdTokenClaimNames.AUTH_TIME) != null) {
+			tokenData.put(IdTokenClaimNames.AUTH_TIME, subjectTokenClaims.get(IdTokenClaimNames.AUTH_TIME));
 		}
 	}
 }

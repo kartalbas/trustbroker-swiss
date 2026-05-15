@@ -17,9 +17,10 @@ package swiss.trustbroker.federation.xmlconfig;
 
 import java.io.Serializable;
 import java.util.List;
-import java.util.Set;
+import java.util.function.Predicate;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.nimbusds.jose.jwk.JWK;
 import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlAttribute;
@@ -155,7 +156,7 @@ public class OidcClient implements Serializable {
 	 * @since 1.13.0
 	 */
 	@XmlElement(name = "Audiences")
-	private Set<String> audiences;
+	private Audiences audiences;
 
 	/**
 	 * OIDC allowed resources in TokenExchange.
@@ -163,7 +164,7 @@ public class OidcClient implements Serializable {
 	 * @since 1.13.0
 	 */
 	@XmlElement(name = "Resources")
-	private Set<String> resources;
+	private Resources resources;
 
 	/**
 	 * Response mode to be requested from CP.
@@ -207,6 +208,8 @@ public class OidcClient implements Serializable {
 
 	private transient Credential clientEncryptionCredential;
 
+	private transient List<JWK> cpJwks;
+
 	public boolean isValidRedirectUri(String requestedRedirectUri) {
 		return redirectUris != null &&
 				UrlAcceptor.isRedirectUrlOkForAccess(requestedRedirectUri, redirectUris.getAcNetUrls());
@@ -237,5 +240,9 @@ public class OidcClient implements Serializable {
 
 	public boolean useClaimsFromSource(OidcClaimsSource claimsSource) {
 		return claimsSources.getClaimsSourceList().contains(claimsSource);
+	}
+
+	public boolean useClaimsFromSourceThat(Predicate<OidcClaimsSource> predicate) {
+		return claimsSources.getClaimsSourceList().stream().anyMatch(predicate);
 	}
 }

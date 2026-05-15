@@ -1,13 +1,13 @@
 buildscript {
 	ext {
 		top = ''
-		buildVersion = '1.13.0'
+		buildVersion = '1.14.0'
 		buildTimestamp = null
 		// build promotion
 		buildName = System.env.BUILD_NAME
 		buildNumber = System.env.BUILD_NUMBER
 		// docker build
-		baseImage = System.env.BUILD_IMAGE ? System.env.BUILD_IMAGE : 'docker.io/azul/zulu-openjdk-alpine:17'
+		baseImage = System.env.BUILD_IMAGE ? System.env.BUILD_IMAGE : 'docker.io/azul/zulu-openjdk-alpine:21'
 		// repo publishing and promotion
 		repoBaseUrl = System.env.BUILD_REGISTRY
 		repoPublishBaseUrl = System.env.BUILD_REGISTRY
@@ -18,13 +18,13 @@ buildscript {
 plugins {
 	id 'base'
 	// https://central.sonatype.com/artifact/org.springframework.boot/spring-boot/versions
-	id 'org.springframework.boot' version '3.5.7' apply false
+	id 'org.springframework.boot' version '3.5.14' apply false
 	// https://plugins.gradle.org/plugin/org.ajoberstar.grgit
 	id 'org.ajoberstar.grgit' version '4.1.1' apply true
 	// https://plugins.gradle.org/plugin/org.unbroken-dome.test-sets
 	id "org.unbroken-dome.test-sets" version '4.1.0' apply false
 	// https://central.sonatype.com/artifact/com.google.cloud.tools/jib-maven-plugin/versions
-	id 'com.google.cloud.tools.jib' version '3.4.5' apply false
+	id 'com.google.cloud.tools.jib' version '3.5.1' apply false
 	// https://github.com/node-gradle/gradle-node-plugin
 	id "com.github.node-gradle.node" version "7.1.0" apply false
 	// https://plugins.gradle.org/plugin/com.jfrog.artifactory
@@ -64,11 +64,11 @@ subprojects {
 		dependencyManagement {
 			imports {
 				// spring-boot: https://spring.io/projects/spring-boot (configured via plugin above)
-				// https://central.sonatype.com/artifact/org.springframework.boot/spring-boot/2.7.11/versions
+				// https://central.sonatype.com/artifact/org.springframework.boot/spring-boot/versions
 				mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
 				// spring-cloud: https://spring.io/projects/spring-cloud
-				// https://central.sonatype.com/artifact/org.springframework.cloud/spring-cloud-dependencies/2025.0.0/versions
-				mavenBom 'org.springframework.cloud:spring-cloud-dependencies:2025.0.0'
+				// https://central.sonatype.com/artifact/org.springframework.cloud/spring-cloud-dependencies/versions
+				mavenBom 'org.springframework.cloud:spring-cloud-dependencies:2025.0.1'
 			}
 			// dependency management for libraries used in multiple components
 			dependencies {
@@ -90,49 +90,49 @@ subprojects {
 				// https://central.sonatype.com/artifact/org.apache.cxf/apache-cxf/versions
 				// https://central.sonatype.com/artifact/com.sun.xml.messaging.saaj/saaj-impl/versions
 				// NOTE: WS-import from wsdl not managed here, see trustbroker-wstrust-service for that.
-				dependencySet(group: 'org.apache.cxf', version: '4.0.9') {
+				dependencySet(group: 'org.apache.cxf', version: '4.2.0') {
 					entry 'cxf-rt-transports-http'
 					entry 'cxf-rt-frontend-jaxws'
 				}
 
 				// git integration
 				// https://central.sonatype.com/artifact/org.eclipse.jgit/org.eclipse.jgit/versions
-				dependency 'org.eclipse.jgit:org.eclipse.jgit:7.3.0.202506031305-r'
-				dependency 'org.eclipse.jgit:org.eclipse.jgit.ssh.apache:7.3.0.202506031305-r'
+				dependency 'org.eclipse.jgit:org.eclipse.jgit:7.5.0.202512021534-r'
+				dependency 'org.eclipse.jgit:org.eclipse.jgit.ssh.apache:7.5.0.202512021534-r'
 
 				// apache baseline (opensaml mainly depends on these)
 				// https://central.sonatype.com/artifact/org.apache.commons/commons-text/versions
 				// https://central.sonatype.com/artifact/org.apache.commons/commons-lang3/versions
 				// https://central.sonatype.com/artifact/commons-beanutils/commons-beanutils/versions
 				// https://central.sonatype.com/artifact/commons-io/commons-io/versions
-				dependency 'org.apache.commons:commons-text:1.14.0'
-				dependency 'org.apache.commons:commons-lang3:3.18.0'
+				dependency 'org.apache.commons:commons-text:1.15.0'
+				dependency 'org.apache.commons:commons-lang3:3.20.0'
 				dependency 'commons-beanutils:commons-beanutils:1.11.0'
-				dependency 'commons-io:commons-io:2.20.0'
+				dependency 'commons-io:commons-io:2.21.0'
 
 				// state cache feature
 				// https://central.sonatype.com/artifact/org.mariadb.jdbc/mariadb-java-client/versions
 				// https://mariadb.com/kb/en/mariadb-connector-j-release-notes/
-				dependency 'org.mariadb.jdbc:mariadb-java-client:3.4.2'
+				dependency 'org.mariadb.jdbc:mariadb-java-client:3.5.7'
 				// https://central.sonatype.com/artifact/org.postgresql/postgresql/versions
-				dependency 'org.postgresql:postgresql:42.7.8'
+				dependency 'org.postgresql:postgresql:42.7.10'
 
 				// script support
 				// dependency 'org.codehaus.groovy:groovy-all' is too much for security so reduce to the max
 				// https://central.sonatype.com/artifact/org.apache.groovy/groovy-jsr223/versions
-				dependencySet(group: 'org.apache.groovy', version: '4.0.28') {
+				dependencySet(group: 'org.apache.groovy', version: '4.0.30') {
 					entry 'groovy-jsr223'
 					entry 'groovy'
 				}
 
 				// OIDC support (JSON parsing) - trustbroker-api needs the version
-				// https://central.sonatype.com/artifact/com.nimbusds/nimbus-jose-jwt/9.37.3/versions
-				dependency 'com.nimbusds:nimbus-jose-jwt:9.47'
+				// https://central.sonatype.com/artifact/com.nimbusds/nimbus-jose-jwt/versions
+				dependency 'com.nimbusds:nimbus-jose-jwt:9.48'
 
 				// JCE provider
 				// https://www.bouncycastle.org/latest_releases.html
-				// https://central.sonatype.com/artifact/org.bouncycastle/bcprov-jdk18on/1.79/versions
-				dependencySet(group: 'org.bouncycastle', version: '1.79') {
+				// https://central.sonatype.com/artifact/org.bouncycastle/bcprov-jdk18on/versions
+				dependencySet(group: 'org.bouncycastle', version: '1.84') {
 					entry 'bcprov-jdk18on'
 					entry 'bcpkix-jdk18on'
 				}
@@ -141,27 +141,27 @@ subprojects {
 				// https://central.sonatype.com/artifact/org.apache.wss4j/wss4j-ws-security-common/versions
 				// https://central.sonatype.com/artifact/org.apache.wss4j/wss4j-ws-security-web/versions
 				// https://central.sonatype.com/artifact/org.apache.wss4j/wss4j-ws-security-dom/versions
-				dependency('org.apache.wss4j:wss4j-ws-security-common:3.0.4') {
+				dependency('org.apache.wss4j:wss4j-ws-security-common:3.0.5') {
 					exclude group: 'org.opensaml', name: 'opensaml-core'
 				}
-				dependency 'org.apache.wss4j:wss4j-ws-security-web:3.0.4'
-				dependency 'org.apache.wss4j:wss4j-ws-security-dom:3.0.4'
+				dependency 'org.apache.wss4j:wss4j-ws-security-web:3.0.5'
+				dependency 'org.apache.wss4j:wss4j-ws-security-dom:3.0.5'
 
 				// exclude old opensaml stuff from spring-security too
 				// https://central.sonatype.com/artifact/org.springframework.security/spring-security-saml2-service-provider/versions
-				dependency('org.springframework.security:spring-security-saml2-service-provider:6.4.11') {
+				dependency('org.springframework.security:spring-security-saml2-service-provider:6.5.9') {
 					exclude group: 'org.opensaml', name: 'opensaml-core'
 				}
 
 				// monitoring
 				// https://central.sonatype.com/artifact/io.micrometer/micrometer-registry-prometheus/versions
-				dependency 'io.micrometer:micrometer-registry-prometheus:1.13.15'
+				dependency 'io.micrometer:micrometer-registry-prometheus:1.16.3'
 
 				// JAX-WS
 				// https://central.sonatype.com/artifact/org.glassfish.jaxb/jaxb-xjc/versions
 				// https://central.sonatype.com/artifact/jakarta.xml.bind/jakarta.xml.bind-api/versions
-				dependency 'jakarta.xml.bind:jakarta.xml.bind-api:4.0.4'
-				dependencySet(group: 'org.glassfish.jaxb', version: '4.0.5') {
+				dependency 'jakarta.xml.bind:jakarta.xml.bind-api:4.0.5'
+				dependencySet(group: 'org.glassfish.jaxb', version: '4.0.6') {
 					entry 'jaxb-xjc'
 					entry 'jaxb-runtime'
 				}
@@ -182,13 +182,13 @@ subprojects {
 			annotationProcessor 'org.projectlombok:lombok'
 		}
 
-		tasks.withType(Test) { Test task ->
+		tasks.withType(Test).configureEach { task ->
 			task.useJUnitPlatform()
 		}
 
 		// NOTE: Do not use build timestamp based version here, otherwise you trigger a new docker image layereach time you build
 		// OK here as our timestamp reflects the git commit timestamp and that really reflects a change.
-		tasks.withType(Jar) { jar ->
+		tasks.withType(Jar).configureEach { jar ->
 			jar.manifest {
 				attributes(
 						'Implementation-Title': project.name,
@@ -198,11 +198,13 @@ subprojects {
 			}
 		}
 
-		tasks.withType(JavaCompile) {
-			options.encoding = 'UTF-8'
-			options.warnings = true
-			options.deprecation = true
-			options.compilerArgs += ["-Xlint:unchecked"]
+		tasks.withType(JavaCompile).tap {
+			configureEach {
+				options.encoding = 'UTF-8'
+				options.warnings = true
+				options.deprecation = true
+				options.compilerArgs += ["-Xlint:unchecked"]
+			}
 		}
 	}
 
@@ -224,16 +226,21 @@ subprojects {
 		tasks.check.dependsOn integrationTest
 	}
 
-	plugins.withType(JacocoPlugin) {
-		tasks.withType(JacocoReport) { task ->
-			task.with {
-				reports.xml.required = true
+	plugins.withType(JacocoPlugin).tap {
+		configureEach {
+			tasks.withType(JacocoReport).tap {
+				configureEach { task ->
+					task.with {
+						reports.xml.required = true
+					}
+				}
 			}
 		}
 	}
+
 }
 
-task showProjectInfo() {
+tasks.register('showProjectInfo') {
 	description 'Shows project configuration details for CI integration'
 	group 'Debug'
 	println("       project: ${rootProject.name}")
@@ -244,5 +251,4 @@ task showProjectInfo() {
 	println("   buildNumber: ${rootProject.buildNumber}")
 	println("     baseImage: ${rootProject.baseImage}")
 	println("dockerRegistry: ${rootProject.dockerRegistry}")
-
 }

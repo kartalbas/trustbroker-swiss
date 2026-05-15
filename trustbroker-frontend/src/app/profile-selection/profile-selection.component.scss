@@ -52,6 +52,9 @@
 			.name {
 				@include typography.ob-h4();
 			}
+			.translation {
+				margin: 6px 0
+			}
 
 			ul {
 				list-style-type: disc;

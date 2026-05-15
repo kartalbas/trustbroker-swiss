@@ -14,9 +14,5 @@
 -->
 
 @if (idpObjects$ | async; as idpObjects) {
-	@if (idpObjects | anyCardHasCategory) {
-		<app-hrd-cards-v2 [idpObjects]="idpObjects" />
-	} @else {
-		<app-hrd-cards [idpObjects]="idpObjects" />
-	}
+	<app-hrd-cards [idpObjects]="idpObjects" />
 }

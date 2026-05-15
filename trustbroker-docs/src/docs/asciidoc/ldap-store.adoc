@@ -29,7 +29,7 @@ Known limitations:
 | application.yml
 | String
 | *
-| dc=trustbroker,dc=swiss
+| dc=trustbroker,dc=ch
 
 
 | ``spring.ldap.usename``

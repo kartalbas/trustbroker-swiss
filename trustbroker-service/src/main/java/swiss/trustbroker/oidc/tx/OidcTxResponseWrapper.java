@@ -18,8 +18,12 @@ package swiss.trustbroker.oidc.tx;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
@@ -28,6 +32,7 @@ import org.springframework.security.web.header.writers.frameoptions.XFrameOption
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
 import swiss.trustbroker.common.util.OidcUtil;
+import swiss.trustbroker.common.util.WebUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.config.dto.RelyingPartyDefinitions;
 import swiss.trustbroker.oidc.OidcExceptionHelper;
@@ -54,6 +59,8 @@ public class OidcTxResponseWrapper extends HttpServletResponseWrapper {
 	private final OidcFrameAncestorHandler frameAncestorHandler;
 
 	private final HeaderBuilder headerBuilder;
+
+	private final Map<String, List<Cookie>> cookies = new HashMap<>();
 
 	public OidcTxResponseWrapper(HttpServletRequest httpRequest, HttpServletResponse originResponse,
 			RelyingPartyDefinitions relyingPartyDefinitions,
@@ -82,6 +89,14 @@ public class OidcTxResponseWrapper extends HttpServletResponseWrapper {
 		value = fixValue(name, value);
 		if (value != null) {
 			super.addHeader(name, value);
+		}
+	}
+
+	@Override
+	public void addCookie(Cookie cookie) {
+		var cookieSet = WebUtil.deduplicateSetCookie(cookies, cookie);
+		if (cookieSet.isPresent()) {
+			super.addCookie(cookie);
 		}
 	}
 

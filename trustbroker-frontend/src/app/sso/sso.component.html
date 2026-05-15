@@ -12,19 +12,13 @@
  You should have received a copy of the GNU Affero General Public License along with this program.
  If not, see <https://www.gnu.org/licenses/>.
 -->
-<div class="mainContent">
-	<div class="title-container" id="titleContainer">
-		<h2>{{ "trustbroker.sso.main.title" | translate }}</h2>
-		<div>
-			<div id="selectionText">
-				<p [innerHTML]="'trustbroker.sso.main.subtitle' | translate | safeMarkup"></p>
-			</div>
-		</div>
-	</div>
+@if (theme$ | async; as theme) {
+	<div class="main">
+		<h1>{{ "trustbroker.sso.main.title" | translate }}</h1>
+		<p [innerHTML]="'trustbroker.sso.main.subtitle' | translate | safeMarkup"></p>
 
-	<div class="cards-padding">
-		@for (ssoGroupParticipants of ssoParticipants; track ssoGroupParticipants) {
-			<div>
+		<section class="cards">
+			@for (ssoGroupParticipants of ssoParticipants; track ssoGroupParticipants) {
 				@if (ssoGroupParticipants.ssoGroupName) {
 					<fieldset class="body-1 high-emphasis mb-4" [id]="'sso-group.' + ssoGroupParticipants.ssoGroupName + '.' + ssoGroupParticipants.ssoSubject">
 						<legend>
@@ -35,53 +29,28 @@
 						</legend>
 						<p>{{ "trustbroker.sso.main.created" | translate }} {{ ssoGroupParticipants.ssoEstablishedTime | date: "dd.MM.yyyy HH:mm:ss" }}</p>
 						<p>{{ "trustbroker.sso.main.expires" | translate }} {{ ssoGroupParticipants.expirationTime | date: "dd.MM.yyyy HH:mm:ss" }}</p>
-						<div class="cards-container" role="list" id="cardcontainer">
+						<div class="card-section">
 							@for (participant of ssoGroupParticipants.participants; track participant) {
-								<div class="card-container" role="listitem">
-									<!--Normal cards -->
-									@if (!isButtonSize) {
-										<mat-card
-											appearance="outlined"
-											class="small"
-											id="{{ ssoGroupParticipants.ssoGroupName + '.' + participant.rpId }}"
-											role="button"
-											[attr.aria-label]="'trustbroker.sso.rp.' + participant.name + '.title' | translate: { Default: participant.name }"
-											(keydown.enter)="onClickCard(ssoGroupParticipants.ssoGroupName, participant.rpId, participant.cpId, ssoGroupParticipants.ssoSubject)"
-											(keydown.space)="onClickCard(ssoGroupParticipants.ssoGroupName, participant.rpId, participant.cpId, ssoGroupParticipants.ssoSubject)"
-											(click)="onClickCard(ssoGroupParticipants.ssoGroupName, participant.rpId, participant.cpId, ssoGroupParticipants.ssoSubject)"
-										>
-											<img
-												mat-card-image
-												[src]="getImageUrl(participant.image)"
-												alt="{{ participant.name }}"
-												(click)="onClickCard(ssoGroupParticipants.ssoGroupName, participant.rpId, participant.cpId, ssoGroupParticipants.ssoSubject)"
-											/>
-											<mat-card-title class="high-emphasis">
-												<p
-													class="strong"
-													[id]="'sso-participant.' + +ssoGroupParticipants.ssoGroupName + '.' + ssoGroupParticipants.ssoSubject + '.' + participant.name"
-													[innerHTML]="'trustbroker.sso.rp.' + participant.name + '.title' | translate: { Default: participant.name } | safeMarkup"
-												></p>
-											</mat-card-title>
-										</mat-card>
-									}
-									<!--Buttons -->
-									<app-small-card
-										[id]="ssoGroupParticipants.ssoGroupName + '.' + ssoGroupParticipants.ssoSubject + '.' + participant.rpId"
-										[showSmallCards]="isButtonSize"
-										[inputColor]="participant.color"
-										[inputShortcut]="participant.shortcut"
-										[theme]="theme"
-										[cardText]="'trustbroker.sso.rp.' + participant.name + '.title' | translate: { Default: participant.name } | safeMarkup"
-										(cardClick)="onClickCard(ssoGroupParticipants.ssoGroupName, participant.rpId, participant.cpId, ssoGroupParticipants.ssoSubject)"
+								<div class="card-container">
+									<button
+										class="card {{ theme.name }} small"
+										(keydown.enter)="onClickCard(ssoGroupParticipants.ssoGroupName, participant.rpId, participant.cpId, ssoGroupParticipants.ssoSubject)"
+										(keydown.space)="onClickCard(ssoGroupParticipants.ssoGroupName, participant.rpId, participant.cpId, ssoGroupParticipants.ssoSubject)"
+										(click)="onClickCard(ssoGroupParticipants.ssoGroupName, participant.rpId, participant.cpId, ssoGroupParticipants.ssoSubject)"
 									>
-									</app-small-card>
+										<img src="{{ apiBaseUrl }}ui/assets/images/{{ theme.name }}/{{ participant.image }}" alt="{{ participant.name }}" />
+										<div
+											class="strong"
+											[id]="'sso-participant.' + +ssoGroupParticipants.ssoGroupName + '.' + ssoGroupParticipants.ssoSubject + '.' + participant.name"
+											[innerHTML]="'trustbroker.sso.rp.' + participant.name + '.title' | translate: { Default: participant.name } | safeMarkup"
+										></div>
+									</button>
 								</div>
 							}
 						</div>
 					</fieldset>
 				}
-			</div>
-		}
+			}
+		</section>
 	</div>
-</div>
+}

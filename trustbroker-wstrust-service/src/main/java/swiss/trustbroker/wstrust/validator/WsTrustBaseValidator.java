@@ -36,9 +36,13 @@ import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.saml.util.SoapUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.federation.xmlconfig.ClaimsParty;
+import swiss.trustbroker.federation.xmlconfig.CounterParty;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
+import swiss.trustbroker.federation.xmlconfig.WsTrustBinding;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
+import swiss.trustbroker.homerealmdiscovery.util.RelyingPartySetupUtil;
 import swiss.trustbroker.saml.util.AssertionValidator;
+import swiss.trustbroker.util.WebSupport;
 import swiss.trustbroker.wstrust.dto.SoapMessageHeader;
 import swiss.trustbroker.wstrust.util.WsTrustUtil;
 
@@ -157,27 +161,9 @@ public abstract class WsTrustBaseValidator implements WsTrustValidator {
 	}
 
 	protected RelyingParty getRstRelyingParty(RequestSecurityToken requestSecurityToken) {
-		String endpointReferenceAddress = null;
-		try {
-			endpointReferenceAddress = WsTrustUtil.getAddressFromRequest(requestSecurityToken);
-		}
-		catch (RuntimeException ex) {
-			log.warn("Missing Address in RST: {}", ex.getMessage());
-		}
-		if (endpointReferenceAddress == null) {
-			endpointReferenceAddress = WsTrustUtil.getEndpointReferenceAddress(requestSecurityToken);
-		}
-		if (endpointReferenceAddress == null) {
-			log.error("RST missing AppliesTo.EndpointReference.Address");
-			return null;
-		}
-		// if we have an address, the config must exist
-		var relyingParty = relyingPartySetupService.getRelyingPartyByIssuerIdOrReferrer(endpointReferenceAddress, null);
-		if (CollectionUtils.isEmpty(relyingParty.getRpTrustCredentials())) {
-			throw new RequestDeniedException(String.format(
-					"RST with EndpointReferenceAddress rpIssuerId='%s' has no SignerTruststore", relyingParty.getId()));
-		}
-		log.debug("RST has EndpointReferenceAddress rpIssuerId='{}'", relyingParty.getId());
+		var addressFromRequest = WsTrustUtil.getAddressFromRequest(requestSecurityToken);
+		var relyingParty = relyingPartySetupService.getRelyingPartyByIssuerIdOrReferrer(addressFromRequest, null);
+		log.debug("RST has Address rpIssuerId='{}'", relyingParty.getId());
 		return relyingParty;
 	}
 
@@ -220,5 +206,35 @@ public abstract class WsTrustBaseValidator implements WsTrustValidator {
 		}
 	}
 
+	// the optional baseParty can provide the WsTrust config default for counterParty:
+	protected void validateProtocolRestrictions(CounterParty counterParty, CounterParty baseParty) {
+		if (RelyingPartySetupUtil.isPartyDisabled(counterParty, WebSupport.getWebRequest(), trustBrokerProperties.getNetwork())) {
+			throw new TechnicalException(String.format("%s=%s disabled",
+					counterParty.getClass().getSimpleName(), counterParty.getId()));
+		}
+		if (!counterParty.isWsTrustEnabled(trustBrokerProperties.getWstrust().isEnabled(), baseParty)) {
+			throw new RequestDeniedException(String.format("%s issuerId=%s does not allow WS-Trust",
+					counterParty.getClass().getSimpleName(), counterParty.getId()));
+		}
+		var actualBinding = getBinding();
+		if (!counterParty.isValidInboundBinding(
+				actualBinding, trustBrokerProperties.getWstrust().getWsTrustBindings(), baseParty)) {
+			throw new RequestDeniedException(String.format("%s issuerId=%s does not support inbound WS-Trust binding=%s",
+					counterParty.getClass().getSimpleName(), counterParty.getId(), actualBinding));
+		}
+	}
 
+	/**
+	 * @return binding supported by this validator.
+	 */
+	protected abstract WsTrustBinding getBinding();
+
+	/**
+	 * @return true if this validator's binding is enabled.
+	 */
+	protected boolean enabled() {
+		var properties = getTrustBrokerProperties();
+		var wstrust = properties.getWstrust();
+		return wstrust != null && wstrust.isEnabled() && wstrust.getWsTrustBindings().contains(getBinding());
+	}
 }

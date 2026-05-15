@@ -138,6 +138,15 @@ public class ProfileSelection implements Serializable, ProfileSelectionPropertie
 	private String profileSelector;
 
 	/**
+	 * Attribute used as selector (kind of unique Secondary Key) for organization selection.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "organizationSelector")
+	private String organizationSelector;
+
+
+	/**
 	 * Attribute used as displayName for profile selection UI.
 	 *
 	 * @since 1.13.0
@@ -153,6 +162,15 @@ public class ProfileSelection implements Serializable, ProfileSelectionPropertie
 	@XmlAttribute(name = "displayClaims")
 	@XmlJavaTypeAdapter(StringListAdapter.class)
 	private List<String> displayClaims;
+
+	/**
+	 * Names of attributes that should be translated.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "translationAttributes")
+	@XmlJavaTypeAdapter(StringListAdapter.class)
+	private List<String> translationAttributes;
 
 	/**
 	 * Mode for profile selection.
@@ -229,4 +247,7 @@ public class ProfileSelection implements Serializable, ProfileSelectionPropertie
 
 	@JsonIgnore
 	public List<String> getDisplayClaims() {return displayClaims;}
+
+	@JsonIgnore
+	public List<String> getTranslationAttributes() {return translationAttributes;}
 }

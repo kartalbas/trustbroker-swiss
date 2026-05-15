@@ -37,6 +37,7 @@ import swiss.trustbroker.audit.dto.EventType;
 import swiss.trustbroker.audit.service.AuditService;
 import swiss.trustbroker.audit.service.OutboundAuditMapper;
 import swiss.trustbroker.common.exception.RequestDeniedException;
+import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.saml.dto.SamlBinding;
 import swiss.trustbroker.common.saml.util.OpenSamlUtil;
 import swiss.trustbroker.common.saml.util.SamlFactory;
@@ -99,7 +100,9 @@ public class ClaimsProviderService {
 		authnRequest.setIssuer(SamlFactory.createIssuer(authnRequestIssuerId));
 		authnRequest.setNameIDPolicy(SamlFactory.createNameIdPolicy(NameIDType.UNSPECIFIED));
 		if (relyingParty.forwardRpProtocolBinding() && claimsProvider.forwardRpProtocolBinding() &&
-				requestedResponseBinding != null && claimsProvider.isValidInboundBinding(requestedResponseBinding)) {
+				requestedResponseBinding != null &&
+				claimsProvider.isValidInboundBinding(requestedResponseBinding,
+						trustBrokerProperties.getSaml().getSamlBindings())) {
 			log.debug("Passing on protocolBinding={} requested by RP and supported for cpIssuerId={}",
 				requestedResponseBinding, cpIssuer);
 			authnRequest.setProtocolBinding(requestedResponseBinding.getBindingUri());
@@ -280,7 +283,7 @@ public class ClaimsProviderService {
 		// save CP state before redirect via user-agent (saves updated CP-side qoa too)
 		var deviceId = WebSupport.getDeviceId(request);
 		// forward using SAML protocol depending on binding
-		if (claimsParty.useSaml()) {
+		if (claimsParty.isSamlEnabled(trustBrokerProperties.getSaml().isEnabled())) {
 			var authnRequest = createAndSignCpAuthnRequest(stateData, relyingParty, requestedResponseBinding,
 				qoaSpec, claimsProvider, delegateOrigin(cpIssuer));
 			saveCorrelatedStateDataWithState(cpIssuer, deviceId, stateData);
@@ -291,7 +294,7 @@ public class ClaimsProviderService {
 			return null;
 		}
 		// forward using OIDC authorization code flow
-		else {
+		else if (claimsParty.isOidcEnabled(trustBrokerProperties.getOidc().isEnabled())) {
 			stateData.getSpStateData().setOidcNonce(OidcUtil.generateNonce());
 			var queryParam = context.get(RpRequest.CONTEXT_OIDC_AUTHORIZATION_QUERY_PARAMETER);
 			var authnCodeFlowRequest = authorizationCodeFlowService.createAuthnRequest(claimsParty, stateData, qoaSpec, queryParam);
@@ -300,6 +303,9 @@ public class ClaimsProviderService {
 			// audit
 			auditAuthnRequestToCp(null, authnCodeFlowRequest, request, stateData);
 			return authnCodeFlowRequest.requestUri();
+		}
+		else {
+			throw new TechnicalException(String.format("cpIssuerId=%s has neither OIDC nor SAML enabled", claimsParty.getId()));
 		}
 	}
 

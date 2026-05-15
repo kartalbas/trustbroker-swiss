@@ -15,12 +15,18 @@
 
 package swiss.trustbroker.config.dto;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import swiss.trustbroker.federation.xmlconfig.WsTrustBinding;
 import swiss.trustbroker.util.ApiSupport;
 
 /**
@@ -30,6 +36,7 @@ import swiss.trustbroker.util.ApiSupport;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Slf4j
 public class WsTrustConfig {
 
 	public enum SoapVersionConfig {
@@ -80,9 +87,11 @@ public class WsTrustConfig {
 	 * Enable ISSUE request.
 	 * <br/>
 	 * Default: false (since 1.13.0)
+	 * @deprecated use bindings
 	 * @since 1.12.0
 	 */
 	@Builder.Default
+	@Deprecated(since = "1.14.0", forRemoval = true)
 	private boolean issueEnabled = false;
 
 	/**
@@ -90,9 +99,22 @@ public class WsTrustConfig {
 	 * <br/>
 	 * Default: false
 	 * @since 1.11.0
+	 * @deprecated use bindings
 	 */
 	@Builder.Default
+	@Deprecated(since = "1.14.0", forRemoval = true)
 	private boolean renewEnabled = false;
+
+	/**
+	 * List of exposed WS-Trust bindings.
+	 * <br/>
+	 * Default: none
+	 *
+	 * @see swiss.trustbroker.federation.xmlconfig.WsTrustBinding
+	 * @since 1.14.0
+	 */
+	@Builder.Default
+	private List<String> bindings = Collections.emptyList();
 
 	/**
 	 * RENEW request requires a valid SSO session.
@@ -188,6 +210,7 @@ public class WsTrustConfig {
 	 * Default: true - set to false in order to warn for violations only
 	 * @since 1.13.0
 	 */
+	@Builder.Default
 	private boolean enforceNetwork = true;
 
 	/**
@@ -203,6 +226,24 @@ public class WsTrustConfig {
 	 * Default: true - set to false in order to warn for violations only
 	 * @since 1.13.0
 	 */
+	@Builder.Default
 	private boolean enforceClientIp = true;
 
+	public Set<WsTrustBinding> getWsTrustBindings() {
+		Set<WsTrustBinding> result = new HashSet<>();
+		if (issueEnabled) {
+			log.warn("Deprecated trustbroker.config.wstrust.issue=true - configure  trustbroker.config.wstrust.bindings "
+					+ "including ISSUE instead");
+			result.add(WsTrustBinding.ISSUE);
+		}
+		if (renewEnabled) {
+			log.warn("Deprecated trustbroker.config.wstrust.renew=true - configure  trustbroker.config.wstrust.bindings "
+					+ "including RENEW instead");
+			result.add(WsTrustBinding.RENEW);
+		}
+		if (bindings != null) {
+			bindings.stream().map(WsTrustBinding::ofNameOrValue).collect(Collectors.toCollection(() -> result));
+		}
+		return Collections.unmodifiableSet(result);
+	}
 }

@@ -15,6 +15,7 @@
 
 package swiss.trustbroker.saml.service;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -62,7 +63,6 @@ import swiss.trustbroker.audit.service.AuditService;
 import swiss.trustbroker.audit.service.InboundAuditMapper;
 import swiss.trustbroker.audit.service.OutboundAuditMapper;
 import swiss.trustbroker.common.config.ExternalStores;
-import swiss.trustbroker.common.exception.RequestDeniedException;
 import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.saml.dto.SamlBinding;
 import swiss.trustbroker.common.saml.dto.SignatureContext;
@@ -277,20 +277,12 @@ public class RelyingPartyService {
 		// called by the user selecting the wanted profile.
 		auditResponseFromCp(httpServletRequest, responseData.getResponse(), cpResponse, cpStateData);
 
-		// fetch data and have a first response with all data, profile selection follows
-		fetchIdmData(cpResponse, cpStateData, cpResponse.getClientName(), true);
-
-		// update data if provisioning modified the IDM
-		if (provisionIdm(cpResponse)) {
-			fetchIdmData(cpResponse, cpStateData, cpResponse.getClientName(), false);
-		}
-
-		// block CP users not found in IDM
-		unknownUserPolicyService.applyUnknownUserPolicy(cpResponse, getClaimsParty(cpResponse));
-
-		// before generating any further IDM data (e.g. AccessRequest) allow hook to do e.g. custom Qoa checks
-		scriptService.processCpAfterProvisioning(cpResponse, cpResponse.getIssuer());
-		scriptService.processRpAfterProvisioning(cpResponse, cpResponse.getRpIssuer(), cpResponse.getRpReferer());
+		// IDM data
+		var spStateData = cpStateData.getSpStateData();
+		var requestIssuer = spStateData.getIssuer();
+		var requestReferer = spStateData.getReferer();
+		Map<String, String> rpContext = spStateData.getRpContext();
+		fetchUserDataAndProvision(requestIssuer, requestReferer, rpContext, cpResponse);
 
 		// validate with RP Qoa requirement
 		if (!cpResponse.isAborted()) {
@@ -301,6 +293,23 @@ public class RelyingPartyService {
 		cpStateData.setCpResponse(cpResponse);
 		return sendSuccessSamlResponseToRp(outputServices, responseData,
 				cpStateData, cpStateData.getDeviceId(), httpServletRequest, httpServletResponse);
+	}
+
+	private void fetchUserDataAndProvision(String issuer, String referer, Map<String, String> rpContext, CpResponse cpResponse) {
+		// fetch data and have a first response with all data, profile selection follows
+		getAttributesAndProperties(cpResponse, true, issuer, referer, rpContext, cpResponse.getClientName());
+
+		// update data if provisioning modified the IDM
+		if (provisionIdm(cpResponse)) {
+			getAttributesAndProperties(cpResponse, false, issuer, referer, rpContext, cpResponse.getClientName());
+		}
+
+		// block CP users not found in IDM
+		unknownUserPolicyService.applyUnknownUserPolicy(cpResponse, getClaimsParty(cpResponse));
+
+		// before generating any further IDM data (e.g. AccessRequest) allow hook to do e.g. custom Qoa checks
+		scriptService.processCpAfterProvisioning(cpResponse, cpResponse.getIssuer());
+		scriptService.processRpAfterProvisioning(cpResponse, cpResponse.getRpIssuer(), cpResponse.getRpReferer());
 	}
 
 	public void validateRpQoaRequirement(StateData cpStateData, CpResponse cpResponse) {
@@ -315,7 +324,7 @@ public class RelyingPartyService {
 
 		var claimsParty = relyingPartySetupService.getClaimsProviderSetupByIssuerId(cpResponse.getIssuerId()).orElseThrow(() ->
 				new TechnicalException(String.format("Could not find cpIssuerId=%s", cpResponse.getIssuer())));
-		var cpQoaConf = claimsParty != null ? claimsParty.getQoaConfig() : new QoaConfig(null, null);
+		var cpQoaConf = claimsParty.getQoaConfig();
 
 		var rpComparison = QoaMappingUtil.getRpComparison(cpStateData, rpQoaConf.config());
 		var rpContextClasses = QoaMappingUtil.getRpContextClasses(cpStateData, rpQoaConf.config());
@@ -406,11 +415,13 @@ public class RelyingPartyService {
 		// reset existing selection if needed, based on fresh IDM data
 		refreshUserDataIfNeeded(idpStateData, null, relyingParty);
 		if (idpStateData.getSelectedProfileExtId() == null) {
+			var hasAccessRequest = relyingParty.hasAccessRequest();
 			var profileSelectionData = ProfileSelectionData.builder()
 														   .profileSelectionProperties(relyingParty.getProfileSelection())
 														   .exchangeId(responseData.getRelayState())
 														   .applicationName(idpStateData.getRpApplicationName())
 														   .oidcClientId(idpStateData.getRpOidcClientId())
+														   .ignoreEmptyProfiles(!hasAccessRequest)
 														   .build();
 			final var profileSelectionService = getProfileSelectionService(relyingParty.getIdmLookup());
 			psResult = profileSelectionService.doInitialProfileSelection(
@@ -1037,6 +1048,9 @@ public class RelyingPartyService {
 	}
 
 	private void getAttributesAndProperties(CpResponse cpResponse, boolean audited, String requestIssuer, String requestReferer, Map<String, String> rpContext, String clientName) {
+		log.debug("Get IDM data for cpResponse.issuer='{}' cpResponse.rpIssuer='{}' clientName='{}' audited={}",
+				 cpResponse.getIssuer(), cpResponse.getRpIssuer(), clientName, audited);
+
 		// make sure CpResponse is clean for reuse
 		updateCpResponseForSso(cpResponse, requestIssuer, requestReferer, rpContext, clientName);
 		// retrieve current attributes from IDM services
@@ -1288,9 +1302,10 @@ public class RelyingPartyService {
 			// use the same flags as for AuthnRequest to control if request and signature validation is required or optional
 			if (trustBrokerProperties.getSecurity().isValidateAuthnRequest()) {
 				// use the RP to which we send the LogoutResponse below - SLO matches referrer before issuer
-				var signingRp = relyingParties.get(0);
+				var signingRp = relyingParties.getFirst();
 				log.debug("Relying party for LogoutRequest signature verification is id={}", signingRp.getId());
-				validateBinding(signingRp, signatureContext.getBinding());
+				SamlValidationUtil.validateProtocolRestrictions(
+						signingRp, signatureContext.getBinding(), null, trustBrokerProperties, false);
 				signatureContext.setRequireSignature(signingRp.requireSignedLogoutRequest());
 				AssertionValidator.validateRequestSignature(logoutRequest, signingRp.getRpTrustCredentials(),
 						trustBrokerProperties, signatureContext);
@@ -1298,13 +1313,6 @@ public class RelyingPartyService {
 			else {
 				log.error("trustbroker.config.security.validateAuthnRequest=false: Security on LogoutRequest disabled!!!");
 			}
-		}
-	}
-
-	private static void validateBinding(RelyingParty relyingParty, SamlBinding binding) {
-		if (!relyingParty.isValidInboundBinding(binding)) {
-			throw new RequestDeniedException(String.format("Relying party rpIssuerId=%s does not support inbound binding=%s",
-					relyingParty.getId(), binding));
 		}
 	}
 
@@ -1450,7 +1458,7 @@ public class RelyingPartyService {
 		var incomingDeviceId = WebSupport.getDeviceId(request);
 
 		// handle SAML response from state
-		ResponseData<Response> responseData = ResponseData.of(null, profileRequestId, null);
+		ResponseData<Response> responseData = ResponseData.of((Response)null, profileRequestId, null);
 		return sendSuccessSamlResponseToRp(outputServices, responseData, stateData, incomingDeviceId, request, response);
 	}
 
@@ -1539,26 +1547,28 @@ public class RelyingPartyService {
 		return profileSelectionServiceFactory.getService(storeType);
 	}
 
-	public Map<String, Object> getTokenExchangeUserData(Map<String, Object> tokenClaims, JWTClaimsSet jwtClaimsSet, RelyingParty relyingParty, ClaimsParty claimsParty, OidcClient rpOidcClient, Set<String> authorizedScopes) {
+	public Map<String, Object> getTokenExchangeUserData(Map<String, Object> tokenClaims, Map<Definition, List<String>> cpOriginalAttributes,
+														RelyingParty relyingParty, ClaimsParty claimsParty, OidcClient rpOidcClient, Set<String> authorizedScopes, List<String> subjectAcrs) {
 		if (tokenClaims == null) {
 			log.error("Token claims are null RelyingParty={} ClaimParty={}", relyingParty.getId(), claimsParty.getId());
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_REQUEST);
 		}
-
 		var subject = (String) tokenClaims.get(OidcUtil.OIDC_SUBJECT);
-		var originalAttributes = jwtClaimsService.mapClaimsToAttributes(jwtClaimsSet, claimsParty);
 		var cpResponse = CpResponse.builder()
 								   .nameId(subject)
-								   .attributes(originalAttributes)
-								   .originalAttributes(originalAttributes)
+								   .attributes(cpOriginalAttributes)
+								   .originalAttributes(cpOriginalAttributes)
 								   .issuer(claimsParty.getId())
 								   .rpIssuer(relyingParty.getId())
 								   .originalNameId(subject)
+								   .clientName(rpOidcClient.getId())
+								   .contextClasses(subjectAcrs)
 								   .build();
 
 		var homeNameValue = RelyingPartySetupService.getHomeName(claimsParty, cpResponse);
 		cpResponse.setHomeName(homeNameValue);
-		getAttributesAndProperties(cpResponse, true, relyingParty.getId(), null, new HashMap<>(), relyingParty.getId());
+		fetchUserDataAndProvision(relyingParty.getId(), null,  new HashMap<>(), cpResponse);
+
 		// Apply SubjectNameMapper
 		SubjectNameMapper.adjustSubjectNameId(cpResponse, relyingParty);
 
@@ -1577,15 +1587,15 @@ public class RelyingPartyService {
 		return getOidcClaims(cpResponse.getUserDetails(), cpAttributes, relyingParty, rpOidcClient, authorizedScopes, cpResponse.getNameId(), trustBrokerProperties);
 	}
 
-	private Map<String, Object> getFilteredCpAttributes(Map<Definition, List<String>> attributes) {
-		Map<String, Object> result = new HashMap<>();
+	private Map<String, List<Object>> getFilteredCpAttributes(Map<Definition, List<String>> attributes) {
+		Map<String, List<Object>> result = new HashMap<>();
 		for (Map.Entry<Definition, List<String>> key : attributes.entrySet()) {
-			result.put(key.getKey().getName(), key.getValue());
+			result.put(key.getKey().getName(), new ArrayList<>(key.getValue()));
 		}
 		return result;
 	}
 
-	private Map<String, Object> getOidcClaims(Map<Definition, List<String>> userDetails,  Map<String, Object> cpAttributes, RelyingParty relyingParty,
+	private Map<String, Object> getOidcClaims(Map<Definition, List<String>> userDetails,  Map<String, List<Object>> cpAttributes, RelyingParty relyingParty,
 											  OidcClient oidcClient, Set<String> scopes, String nameId, TrustBrokerProperties properties) {
 		Map<String, List<Object>> attributes = IdmAttributeUtil.getAttributesFromUserDetails(userDetails);
 		if (scopes == null || scopes.isEmpty()) {
@@ -1597,9 +1607,18 @@ public class RelyingPartyService {
 		oidcClaims.putIfAbsent(OidcUtil.OIDC_SUBJECT, nameId);
 
 		if (cpAttributes != null) {
-			oidcClaims.putAll(cpAttributes);
+			Map<String, Object> cpOidcClaims = OidcConfigurationUtil.computeOidcClaims(cpAttributes, definitionsFromConfig,
+					claimsMapperService, properties.getOidc().isAddEidStandardClaims(), oidcClient);
+			oidcClaims.putAll(cpOidcClaims);
 		}
 		return oidcClaims;
 	}
 
+	public Map<Definition, List<String>> extractAndValidateCpAttrs(JWTClaimsSet jwtClaimsSet, Map<String, Set<String>> requestParams, ClaimsParty claimsParty) {
+		Map<String, Object> claims = new HashMap<>(jwtClaimsSet.getClaims());
+		for (Map.Entry<String, Set<String>> entry : requestParams.entrySet()) {
+			claims.put(entry.getKey(), new HashSet<>(entry.getValue()));
+		}
+		return jwtClaimsService.mapAndValidateClaimsToAttributes(claims, claimsParty);
+	}
 }

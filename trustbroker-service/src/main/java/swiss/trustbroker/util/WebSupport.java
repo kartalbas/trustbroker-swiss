@@ -71,9 +71,7 @@ public class WebSupport {
 	}
 
 	public static HttpServletRequest getWebRequest() {
-		// we are within Spring, so a spring-mvc filter provides us with this information
-		var attrs = RequestContextHolder.getRequestAttributes();
-		return attrs != null ? ((ServletRequestAttributes) attrs).getRequest() : null;
+		return getHttpServletRequest(true);
 	}
 
 	// Real network header as it's set by a loadbalancer/proxy
@@ -247,6 +245,7 @@ public class WebSupport {
 	}
 
 	public static ServletRequestAttributes getServletRequestAttributes(boolean tryOnly) {
+		// we are within Spring, so a spring-mvc filter provides us with this information
 		var requestAttrs = RequestContextHolder.getRequestAttributes();
 		if (requestAttrs instanceof ServletRequestAttributes servletRequestAttributes) {
 			return servletRequestAttributes;
@@ -275,7 +274,7 @@ public class WebSupport {
 	}
 
 	public static boolean canaryModeEnabled(HttpServletRequest httpRequest, NetworkConfig networkConfig) {
-		if (networkConfig != null) {
+		if (networkConfig != null && httpRequest != null) {
 			var canaryHeader = WebUtil.getHeader(networkConfig.getCanaryMarkerName(), httpRequest);
 			var canaryCookie = WebUtil.getCookie(networkConfig.getCanaryMarkerName(), httpRequest);
 			var enabledValue = networkConfig.getCanaryEnabledValue();
@@ -325,6 +324,17 @@ public class WebSupport {
 				.map(WebUtil::getValidOrigin)
 				.filter(Objects::nonNull)
 				.collect(Collectors.toSet());
+	}
+
+	public static boolean isOwnOrigin(TrustBrokerProperties properties, URI checkUri) {
+		var origin = WebUtil.getValidOrigin(checkUri);
+		if (origin == null) {
+			return false;
+		}
+		var checkUrl =  origin + '/';
+		return getOwnPerimeterUris(properties)
+				.filter(Objects::nonNull)
+				.anyMatch(uri -> uri.startsWith(checkUrl));
 	}
 
 	public static Set<String> getOwnPerimeterPaths(TrustBrokerProperties properties) {

@@ -27,11 +27,11 @@ import org.opensaml.saml.saml2.core.LogoutRequest;
 import org.opensaml.saml.saml2.core.LogoutResponse;
 import org.opensaml.saml.saml2.core.Response;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.ResponseBody;
 import swiss.trustbroker.api.saml.service.OutputService;
 import swiss.trustbroker.common.exception.RequestDeniedException;
 import swiss.trustbroker.common.saml.dto.SamlBinding;
@@ -39,7 +39,6 @@ import swiss.trustbroker.common.saml.dto.SignatureContext;
 import swiss.trustbroker.common.saml.util.OpenSamlUtil;
 import swiss.trustbroker.common.util.WebUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
-import swiss.trustbroker.federation.service.FederationMetadataService;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.saml.dto.ResponseData;
 import swiss.trustbroker.saml.service.ArtifactResolutionService;
@@ -57,11 +56,10 @@ import swiss.trustbroker.util.WebSupport;
  * compat and to possibly get out of the ADFS's way for migration if running on same host name.
  */
 @Controller
+@ConditionalOnProperty(value = "trustbroker.config.saml.enabled", havingValue = "true", matchIfMissing = true)
 public class AppController extends AbstractSamlController {
 
 	private final RelyingPartyService relyingPartyService;
-
-	private final FederationMetadataService federationMetadataService;
 
 	private final RelyingPartySetupService relyingPartySetupService;
 
@@ -78,7 +76,6 @@ public class AppController extends AbstractSamlController {
 			RelyingPartyService relyingPartyService,
 			TrustBrokerProperties trustBrokerProperties,
 			SamlValidator samlValidator,
-			FederationMetadataService federationMetadataService,
 			RelyingPartySetupService relyingPartySetupService,
 			SsoService ssoService,
 			ArtifactResolutionService artifactResolutionService,
@@ -86,7 +83,6 @@ public class AppController extends AbstractSamlController {
 			List<OutputService> outputServices) {
 		super(trustBrokerProperties, samlValidator);
 		this.relyingPartyService = relyingPartyService;
-		this.federationMetadataService = federationMetadataService;
 		this.relyingPartySetupService = relyingPartySetupService;
 		this.ssoService = ssoService;
 		this.artifactResolutionService = artifactResolutionService;
@@ -140,12 +136,12 @@ public class AppController extends AbstractSamlController {
 		MessageContext messageContext;
 		SignatureContext signatureContext;
 		if (OpenSamlUtil.isSamlArtifactRequest(request)) {
-			validateBinding(SamlBinding.ARTIFACT);
+			validateProtocolRestrictions(SamlBinding.ARTIFACT);
 			messageContext = artifactResolutionService.decodeSamlArtifactRequest(request);
 			signatureContext = SignatureContext.forArtifactBinding();
 		}
 		else if (expectedBinding == SamlBinding.REDIRECT) {
-			validateBinding(SamlBinding.REDIRECT);
+			validateProtocolRestrictions(SamlBinding.REDIRECT);
 			if (!OpenSamlUtil.isSamlRedirectRequest(request)) {
 				throw new RequestDeniedException(String.format(
 						"GET %s without any SAML message dropped", request.getRequestURI()));
@@ -154,12 +150,12 @@ public class AppController extends AbstractSamlController {
 			signatureContext = SignatureContext.forRedirectBinding(WebUtil.getUrlWithQuery(request));
 		}
 		else if (expectedBinding == SamlBinding.SOAP) {
-			validateBinding(SamlBinding.SOAP);
+			validateProtocolRestrictions(SamlBinding.SOAP);
 			messageContext = OpenSamlUtil.decodeSamlSoapMessage(request);
 			signatureContext = SignatureContext.forSoapBinding();
 		}
 		else {
-			validateBinding(SamlBinding.POST);
+			validateProtocolRestrictions(SamlBinding.POST);
 			if (!OpenSamlUtil.isSamlPostRequest(request)) {
 				throw new RequestDeniedException(String.format(
 						"POST %s without any SAML message dropped", request.getRequestURI()));
@@ -170,7 +166,7 @@ public class AppController extends AbstractSamlController {
 		return processMessageContext(messageContext, response, request, signatureContext);
 	}
 
-	private void validateBinding(SamlBinding binding) {
+	private void validateProtocolRestrictions(SamlBinding binding) {
 		if (!binding.isIn(trustBrokerProperties.getSaml().getBindings())) {
 			throw new RequestDeniedException(
 					String.format("Binding=%s not enabled: %s",
@@ -178,7 +174,7 @@ public class AppController extends AbstractSamlController {
 		}
 	}
 
-	private void validateBindingForMessage(SAMLObject message, SamlBinding binding) {
+	private void validateProtocolRestrictionsForMessage(SAMLObject message, SamlBinding binding) {
 		// other request types require redirects and don't work with SOAP binding
 		if (binding == SamlBinding.SOAP && !(message instanceof LogoutRequest)) {
 			throw new RequestDeniedException(
@@ -191,7 +187,7 @@ public class AppController extends AbstractSamlController {
 			HttpServletRequest request, SignatureContext signatureContext) {
 
 		var message = decodeAndValidateMessage(messageContext);
-		validateBindingForMessage(message, signatureContext.getBinding());
+		validateProtocolRestrictionsForMessage(message, signatureContext.getBinding());
 
 		if (message instanceof AuthnRequest authnRequest) {
 			var relayState = SAMLBindingSupport.getRelayState(messageContext);
@@ -226,36 +222,10 @@ public class AppController extends AbstractSamlController {
 		return message;
 	}
 
-	// Federation metadata endpoint XML
-	@GetMapping(path = {
-			ApiSupport.SAML_METADATA_URL,
-			ApiSupport.METADATA_URL,
-			ApiSupport.XTB_LOWER_CASE_ALTERNATE_METADATA_ENDPOINT,
-			ApiSupport.XTB_ALTERNATE_METADATA_ENDPOINT // camel-case deprecated but documented in old MS docs
-	}, produces = MediaType.APPLICATION_XML_VALUE)
-	@ResponseBody
-	public String handleFederationMetadata(HttpServletRequest request, HttpServletResponse response) {
-		return federationMetadataService.getFederationMetadata(true, true);
-	}
-
-	// RP side only
-	@GetMapping(path = { ApiSupport.SAML_METADATA_URL + "/sp" }, produces = MediaType.APPLICATION_XML_VALUE)
-	@ResponseBody
-	public String handleSpFederationMetadata(HttpServletRequest request, HttpServletResponse response) {
-		return federationMetadataService.getFederationMetadata(false, true);
-	}
-
-	// CP side only
-	@GetMapping(path = { ApiSupport.SAML_METADATA_URL + "/idp" }, produces = MediaType.APPLICATION_XML_VALUE)
-	@ResponseBody
-	public String handleIdpFederationMetadata(HttpServletRequest request, HttpServletResponse response) {
-		return federationMetadataService.getFederationMetadata(true, false);
-	}
-
 	// Use @Endpoint instead? Would require tweaking interceptor chain (see WsTrustEndpoint etc. via Spring EndpointMapping)
 	@PostMapping(path = ApiSupport.ARP_URL)
 	public void resolveArtifact(HttpServletRequest request, HttpServletResponse response) {
-		validateBinding(SamlBinding.ARTIFACT);
+		validateProtocolRestrictions(SamlBinding.ARTIFACT);
 		artifactResolutionService.resolveArtifact(request, response);
 	}
 

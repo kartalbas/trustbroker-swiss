@@ -24,6 +24,7 @@ import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
@@ -60,6 +61,8 @@ public class ApplicationInitializer {
 	private final RelyingPartyDefinitions relyingPartyDefinitions;
 
 	private final TrustBrokerProperties trustBrokerProperties;
+
+	private final ConfigurableEnvironment environment;
 
 	private final AppConfigService appConfigService;
 
@@ -105,11 +108,11 @@ public class ApplicationInitializer {
 
 		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(
 				trustBrokerProperties.getConfigurationPath() + DIRECTORY_LATEST +
-						trustBrokerProperties.getRelyingPartySetup());
+						trustBrokerProperties.getRelyingPartySetup(), environment);
 
 		var claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(
 				trustBrokerProperties.getConfigurationPath() + DIRECTORY_LATEST +
-						trustBrokerProperties.getClaimsProviderSetup());
+						trustBrokerProperties.getClaimsProviderSetup(), environment);
 
 		var ssoGroupSetup = ClaimsProviderUtil.loadSsoGroups(
 				trustBrokerProperties.getConfigurationPath() + DIRECTORY_LATEST +
@@ -194,6 +197,7 @@ public class ApplicationInitializer {
 		RelyingPartySetupUtil.loadRelyingParty(
 				relyingParties, trustBrokerProperties.getConfigurationPath() +
 						GitService.CONFIGURATION_PATH_SUB_DIR_LATEST + RelyingPartySetupUtil.DEFINITION_PATH, newConfigPath,
-				trustBrokerProperties, idmQueryServices, scriptService, claimsProviderSetup, claimsProviderDefinitions);
+				trustBrokerProperties, idmQueryServices, scriptService, claimsProviderSetup, claimsProviderDefinitions,
+				environment);
 	}
 }

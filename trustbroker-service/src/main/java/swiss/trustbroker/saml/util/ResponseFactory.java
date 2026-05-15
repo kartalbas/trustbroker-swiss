@@ -296,6 +296,9 @@ public class ResponseFactory {
 	}
 
 	private static boolean attributeHasNoDefinition(Definition key, List<Definition> cpAttributeDefinitions) {
+		if (cpAttributeDefinitions == null || cpAttributeDefinitions.isEmpty()) {
+			return true;
+		}
 		for (Definition definition : cpAttributeDefinitions) {
 			if (key.equalsByNameOrNamespace(definition)) {
 				key.setCid(definition.getCid()); // use flag from configuration

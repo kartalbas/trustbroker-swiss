@@ -37,6 +37,9 @@ oidcmock:
     XTB-dev:
       acr: "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"
       atr1: "atr1"
+      aud:
+        - "XTB-dev"
+        - "XTB-TokenExchange"
     XTB-dev2:
       acr: "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"
       atr2: "atr2"

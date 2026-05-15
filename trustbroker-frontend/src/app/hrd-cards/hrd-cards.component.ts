@@ -12,111 +12,103 @@
  * You should have received a copy of the GNU Affero General Public License along with this program.
  * If not, see <https://www.gnu.org/licenses/>.
  */
-
-import { BreakpointObserver } from '@angular/cdk/layout';
-import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
-import { Component, DestroyRef, effect, input } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
-
+import { ChangeDetectionStrategy, Component, DestroyRef, TemplateRef, ViewChild, effect, input } from '@angular/core';
+import { IdpObject, IdpObjectWithNoticeClaimProviders, IdpObjects } from '../model/IdpObject';
 import { environment } from '../../environments/environment';
-import { IdpObjects } from '../model/IdpObject';
-import { ApiService } from '../services/api.service';
-import { IdpObjectService } from '../services/idp-object.service';
-import { LanguageService } from '../services/language.service';
 import { ThemeService } from '../services/theme-service';
-import { ValidationService } from '../services/validation-service';
-import { Observable, switchMap } from 'rxjs';
+import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs/operators';
+import { IdpObjectService } from '../services/idp-object.service';
+import { Dialog } from '@angular/cdk/dialog';
+import { Overlay } from '@angular/cdk/overlay';
+import { HrdSelectionService } from '../services/hrd-selection.service';
+import { ClaimsProviderNoticeService } from '../services/claims-provider-notice.service';
+import { ValidationService } from '../services/validation-service';
 
 @Component({
 	selector: 'app-hrd-cards',
 	templateUrl: './hrd-cards.component.html',
-	styleUrls: ['./hrd-cards.component.scss'],
+	styleUrl: './hrd-cards.component.scss',
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	standalone: false
 })
 export class HrdCardsComponent {
-	idpObjects = input.required<IdpObjects>();
-
-	showHrd = true;
 	apiBaseUrl: string = environment.apiUrl;
-	showNormalSize$: Observable<boolean>;
-	clicked: boolean;
 
-	protected readonly ThemeService = ThemeService;
+	idpObjects = input.required<IdpObjects>();
+	theme$ = this.themeService.theme$;
+
+	@ViewChild('disabledDialogContent') disabledDialogContentRef: TemplateRef<Element>;
 
 	constructor(
-		private readonly apiService: ApiService,
-		breakpointObserver: BreakpointObserver,
-		private readonly idpObjectService: IdpObjectService,
-		public readonly languageService: LanguageService,
-		public readonly themeService: ThemeService,
-		private readonly validation: ValidationService,
 		private readonly route: ActivatedRoute,
 		private readonly router: Router,
-		private readonly destroyRef: DestroyRef
+		protected readonly themeService: ThemeService,
+		private readonly destroyRef: DestroyRef,
+		private readonly idpObjectService: IdpObjectService,
+		private readonly dialog: Dialog,
+		private readonly overlay: Overlay,
+		private readonly hrdSelectionService: HrdSelectionService,
+		private readonly claimsProviderNoticeService: ClaimsProviderNoticeService,
+		private readonly validation: ValidationService
 	) {
-		effect(() => {
+		effect(async () => {
 			const tiles = this.idpObjects().tiles || [];
 			if (tiles.length === 1 && !tiles[0].disabled) {
-				this.showHrd = false;
-				this.onClickCard(tiles[0]);
+				await this.onCardClick(tiles[0]);
 			} else {
 				// disabled tiles are also displayed in help
 				this.idpObjectService.addIdpObjects(tiles);
 			}
 		});
-
-		this.showNormalSize$ = breakpointObserver.observe(['(min-width: 600px)']).pipe(map(({ matches }) => matches));
 	}
 
-	getImageUrl(imageName): string {
-		const currentLang = this.languageService.currentLang;
-		const newImgName = imageName.replace('{language}', currentLang);
+	public async onCardClick(idpObject: IdpObject) {
+		if (idpObject.noticeClaimsProviders && (idpObject.noticeMaxAgeSec === -1 || !this.claimsProviderNoticeService.hasCookieSet(idpObject))) {
+			const noticeClaimProviders = this.idpObjects().tiles?.filter(({ name }) => idpObject.noticeClaimsProviders?.includes(name)) ?? [];
+			const idpObjectWithNoticeClaimsProviders: IdpObjectWithNoticeClaimProviders = {
+				...idpObject,
+				noticeClaimProviders
+			};
 
-		return `${this.apiBaseUrl}ui/images/${newImgName}`;
-	}
-
-	onClickCard(idpObject): void {
-		if (this.clicked || idpObject.disabled) {
-			return;
-		}
-		this.clicked = true;
-		this.route.params
-			.pipe(
-				switchMap(params => this.apiService.selectIdp(this.validation.getValidParameter(params, 'authnRequestId', ValidationService.ID, ''), idpObject.urn)),
-				takeUntilDestroyed(this.destroyRef)
-			)
-			.subscribe({
-				next: resp => {
-					this.processSelectionResponse(resp);
-				},
-				error: (errorResponse: HttpErrorResponse) => {
-					console.error(errorResponse);
-				}
+			await this.router.navigate(['claimsprovidernotice', idpObject.name, this.route.snapshot.params['issuer'], this.route.snapshot.params['authnRequestId']], {
+				state: { idpObject: idpObjectWithNoticeClaimsProviders }
 			});
+			return;
+		}
+
+		const authnRequestId = this.validation.getValidParameter(this.route.snapshot.params, 'authnRequestId', ValidationService.ID, '');
+		this.hrdSelectionService.selectIdp(authnRequestId, idpObject);
 	}
 
-	private processSelectionResponse(resp: HttpResponse<string>) {
-		const location = resp.headers.get('location');
-		if (location) {
-			// writing the body of the redirect result to the document does not work
-			window.location.href = location;
+	onOpenDialog(idpObject: IdpObject, element: Element, event: Event): void {
+		event.stopPropagation(); // avoid the calling the idp represented by the button below
+		if (event instanceof KeyboardEvent && event.key !== 'Enter') {
 			return;
 		}
-		// document.write for error page does not work here
-		const url = resp.url!.replace(/^.*(\/failure\/.*$)/, '$1');
-		if (url !== resp.url) {
-			void this.router.navigate([url]);
-			return;
-		}
-		window.document.write(resp.body!);
-		if (document.forms.length > 0) {
-			document.forms.item(0)?.submit();
-		} else {
-			// not a SAML form, e.g. AccessRequest
-			// NOSONAR
-			// console.info('[HrdCardsComponent] Do not have a form to submit');
-		}
+
+		element.setAttribute('aria-expanded', 'true');
+		const strategy = this.overlay
+			.position()
+			.flexibleConnectedTo(element)
+			.withPositions([
+				{ originX: 'start', originY: 'top', overlayX: 'start', overlayY: 'bottom', offsetY: 0 },
+				{ originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 0 }
+			]);
+
+		this.dialog.openDialogs.forEach(dialogRef => dialogRef.close());
+
+		const dialogRef = this.dialog.open(this.disabledDialogContentRef, {
+			minWidth: element.clientWidth,
+			maxWidth: element.clientWidth,
+			positionStrategy: strategy,
+			data: {
+				disabled: idpObject.disabled,
+				title: idpObject.title,
+				labeledById: element.id
+			}
+		});
+
+		dialogRef.closed.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => element.setAttribute('aria-expanded', 'false'));
 	}
 }

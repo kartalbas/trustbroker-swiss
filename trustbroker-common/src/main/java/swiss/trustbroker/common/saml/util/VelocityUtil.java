@@ -40,6 +40,8 @@ public class VelocityUtil {
 
 	public static final String VELOCITY_SLO_TEMPLATE_ID = "/templates/SLO-SAML2-POST.vm";
 
+	public static final String VELOCITY_REDIRECT_TEMPLATE_ID = "/templates/REDIRECT.vm";
+
 	public static final String VELOCITY_WS_FED_TEMPLATE_ID = "/templates/WS-FED-POST.vm";
 
 	public static final String VELOCITY_PARAM_XTB_SIG_ALG = "XTBSigAlg";
@@ -55,6 +57,8 @@ public class VelocityUtil {
 	public static final String VELOCITY_PARAM_XTB_RESULT = "XTBResult";
 
 	public static final String VELOCITY_PARAM_ACTION = "action"; // from OpenSaml
+
+	public static final String VELOCITY_PARAM_ADDITIONAL_FIELDS = "XTBAdditionalFields";
 
 	private VelocityUtil() {}
 

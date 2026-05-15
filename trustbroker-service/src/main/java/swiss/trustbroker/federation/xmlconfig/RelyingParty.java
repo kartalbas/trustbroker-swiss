@@ -149,6 +149,14 @@ public class RelyingParty extends CounterParty implements RelyingPartyConfig {
 	@XmlElement(name = "Saml")
 	private Saml saml;
 
+	/**
+	 * WS-Trust protocol configuration for this RP.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlElement(name = "WsTrust")
+	private WsTrust wsTrust;
+
 	// feature flags
 
 	/**
@@ -286,6 +294,14 @@ public class RelyingParty extends CounterParty implements RelyingPartyConfig {
 	}
 
 	@Override
+	public Oidc getOidc() {
+		return oidc;
+	}
+
+	@Override
+	public WsTrust getWsTrust() { return wsTrust; }
+
+	@Override
 	public AttributesSelection getAttributesSelection() { return attributesSelection; }
 
 	@Override
@@ -338,6 +354,10 @@ public class RelyingParty extends CounterParty implements RelyingPartyConfig {
 		return sso != null && sso.isEnabled();
 	}
 
+	public boolean hasAccessRequest() {
+		return accessRequest != null && accessRequest.enabled();
+	}
+
 	public Optional<String> getSloUrl(SloProtocol protocol) {
 		if (sso == null) {
 			return Optional.empty();
@@ -359,10 +379,6 @@ public class RelyingParty extends CounterParty implements RelyingPartyConfig {
 		return sso.getSloResponse().stream()
 				.filter(slo -> slo.hasIssuerForResponse(protocol)).map(SloResponse::getIssuer)
 				.findFirst();
-	}
-
-	public List<OidcClient> getOidcClients() {
-		return oidc != null && oidc.getClients() != null ? oidc.getClients() : Collections.emptyList();
 	}
 
 	public Saml initializedSaml() {
@@ -431,13 +447,6 @@ public class RelyingParty extends CounterParty implements RelyingPartyConfig {
 	@Override
 	public String getShortType() {
 		return "RP";
-	}
-
-	/**
-	 * @return true if the RP has Oidc configuration
-	 */
-	public boolean useOidc() {
-		return oidc != null;
 	}
 
 	// returns empty list if not set

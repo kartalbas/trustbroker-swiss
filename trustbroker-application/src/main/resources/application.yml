@@ -50,7 +50,7 @@ spring:
         size: 2
   #ldap:
   #  urls: ldap://localhost:1389
-  #  username: cn=admin,dc=trustbroker,dc=swiss
+  #  username: cn=admin,dc=trustbroker,dc=ch
   #  password: secret
 
 server:
@@ -238,6 +238,7 @@ trustbroker:
       fallback: SAMEORIGIN
     # SAML 2.0 protocol support
     saml:
+      enabled: true
       # CP side destination setup
       # path requested on XTB must be one of /api/v1/saml, /adfs/ls, /adfs/ls/, trustbroker/adfs/ls (deprecated)
       consumerUrl: ${trustbroker.config.perimeterUrl}/api/v1/saml
@@ -272,6 +273,7 @@ trustbroker:
           password: "${PKI_PASSPHRASE}"
     # OIDC 1.0 protocol support
     oidc:
+      enabled: true
       issuer: "${trustbroker.config.issuer}"
       # path requested on XTB must be /login/saml2/sso
       perimeterUrl: "${trustbroker.config.perimeterUrl}/login/saml2/sso"
@@ -380,11 +382,13 @@ trustbroker:
         - sid
       samlNamespacesMappedToOidcFormat:
         - namespace: urn:oasis:names:tc:SAML:2.0:status
+      externalTokenExchangeEnabled: false
     # WSTrust is supported for clients sending our own assertions in the SOAP security header of an RST request to get a new one
     wstrust:
       enabled: false
-      issueEnabled: false
-      renewEnabled: false
+      #bindings:
+      #  - ISSUE
+      #  - RENEW
       renewRequireSignedRequests: true
       renewRequiresSsoSession: true
       renewRequiresSecurityToken: true

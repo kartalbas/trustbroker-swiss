@@ -104,6 +104,7 @@ public class GuiSupport {
 				.languageCookie(buildConfig(config.getLanguageCookie()))
 				.themeCookie(buildConfig(config.getThemeCookie()))
 				.announcementCookie(buildConfig(config.getAnnouncementCookie()))
+				.claimsProviderNoticeCookie(buildConfig(config.getClaimsProviderNoticeCookie()))
 				.buttons(config.getButtons())
 				.features(config.getFeatures())
 				.build();

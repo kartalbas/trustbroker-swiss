@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
+import org.springframework.core.env.ConfigurableEnvironment;
 import swiss.trustbroker.federation.xmlconfig.ClaimsParty;
 import swiss.trustbroker.federation.xmlconfig.ClaimsProvider;
 import swiss.trustbroker.federation.xmlconfig.ClaimsProviderDefinitions;
@@ -41,10 +42,10 @@ public class ClaimsProviderUtil {
 	}
 
 	// handle all SetupCP*.xml files
-	public static ClaimsProviderSetup loadClaimsProviderSetup(String mappingFile) {
+	public static ClaimsProviderSetup loadClaimsProviderSetup(String mappingFile, ConfigurableEnvironment environment) {
 		var start = System.currentTimeMillis(); // we read from PVC residing on a network appliance
 		var mapping = new File(mappingFile);
-		var allCps = XmlConfigUtil.loadConfigFromDirectory(mapping, ClaimsProviderSetup.class);
+		var allCps = XmlConfigUtil.loadConfigFromDirectory(mapping, ClaimsProviderSetup.class, environment);
 		var ret = new ClaimsProviderSetup();
 		allCps.result().forEach(cps -> ret.getClaimsParties().addAll(cps.getClaimsParties()));
 		ret.getClaimsParties().forEach(ClaimsProviderUtil::postInit);
@@ -76,13 +77,13 @@ public class ClaimsProviderUtil {
 	}
 
 	// handle all SetupRP*.xml files
-	public static RelyingPartySetup loadRelyingPartySetup(String mappingFile) {
-		return loadRelyingPartySetup(new File(mappingFile));
+	public static RelyingPartySetup loadRelyingPartySetup(String mappingFile, ConfigurableEnvironment environment) {
+		return loadRelyingPartySetup(new File(mappingFile), environment);
 	}
 
-	public static RelyingPartySetup loadRelyingPartySetup(File mappingFile) {
+	public static RelyingPartySetup loadRelyingPartySetup(File mappingFile, ConfigurableEnvironment environment) {
 		var start = System.currentTimeMillis(); // we read from PVC residing on a network appliance
-		var allRps = XmlConfigUtil.loadConfigFromDirectory(mappingFile, RelyingPartySetup.class);
+		var allRps = XmlConfigUtil.loadConfigFromDirectory(mappingFile, RelyingPartySetup.class, environment);
 		var ret = new RelyingPartySetup();
 		allRps.result().forEach(rps -> ret.getRelyingParties().addAll(rps.getRelyingParties()));
 		var countWithoutAliases = ret.getRelyingParties().size();
@@ -126,15 +127,15 @@ public class ClaimsProviderUtil {
 		return idSet;
 	}
 
-	public static RelyingParty loadRelyingParty(String mappingFile) {
+	public static RelyingParty loadRelyingParty(String mappingFile, ConfigurableEnvironment environment) {
 		var mapping = new File(mappingFile);
-		return XmlConfigUtil.loadConfigFromFile(mapping, RelyingParty.class);
+		return XmlConfigUtil.loadConfigFromFile(mapping, RelyingParty.class, environment);
 	}
 
 	public static ClaimsProviderDefinitions loadClaimsProviderDefinitions(String mappingFile) {
 		var start = System.currentTimeMillis(); // we read from PVC residing on a network appliance
 		var mapping = new File(mappingFile);
-		var ret = XmlConfigUtil.loadConfigFromFile(mapping, ClaimsProviderDefinitions.class);
+		var ret = XmlConfigUtil.loadConfigFromFile(mapping, ClaimsProviderDefinitions.class, null);
 		log.info("Loaded {}Count={} definitions from one {} file in dtMs={}",
 				ClaimsProviderDefinitions.class.getSimpleName(), ret.getClaimsProviders().size(),
 				mapping.getName(), System.currentTimeMillis() - start);
@@ -147,7 +148,7 @@ public class ClaimsProviderUtil {
 			// we have too many setup files and SSOGroups are special, so get rid of the Setup prefix in a backward compat way
 			ssoGroupsSetupFile = new File(ssoGroupsSetupFileName.replace("SetupSSOGroups", "SSOGroups"));
 		}
-		return XmlConfigUtil.loadConfigFromFile(ssoGroupsSetupFile, SsoGroupSetup.class);
+		return XmlConfigUtil.loadConfigFromFile(ssoGroupsSetupFile, SsoGroupSetup.class, null);
 	}
 
 	// handle derived IDs, so we can merge RelyingParty X with X-...

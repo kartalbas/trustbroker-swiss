@@ -97,6 +97,16 @@ public class Sso implements Serializable {
 	@XmlAttribute(name="logoutNotifications", required = false)
 	private Boolean logoutNotifications;
 
+	/**
+	 * Serialize logout notifications in the order of the <code>SloResponse</code> elements.
+	 * <br/>
+	 * By default, they are fired in parallel.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name="serializeNotifications", required = false)
+	private Boolean serializeNotifications;
+
 	@XmlElement(name = "SloResponse")
 	@Builder.Default
 	private List<SloResponse> sloResponse = new ArrayList<>();
@@ -104,6 +114,10 @@ public class Sso implements Serializable {
 	public boolean logoutNotificationsEnabled() {
 		return Boolean.TRUE.equals(logoutNotifications) ||
 				(logoutNotifications == null && hasSloNotifications());
+	}
+
+	public boolean serializeNotifications() {
+		return Boolean.TRUE.equals(serializeNotifications);
 	}
 
 	private boolean hasSloNotifications() {

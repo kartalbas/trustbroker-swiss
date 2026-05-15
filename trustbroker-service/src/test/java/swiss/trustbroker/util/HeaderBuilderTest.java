@@ -168,6 +168,13 @@ class HeaderBuilderTest implements FrameAncestorHandler {
 		};
 	}
 
+	@Test
+	void allowPrivateNetwork() {
+		headerBuilder.allowPrivateNetwork();
+		assertThat(response.getHeader(HeaderBuilder.ACCESS_CONTROL_ALLOW_PRIVATE_NETWORK),
+				is(HeaderBuilder.ACCESS_CONTROL_PRIVATE_NETWORK));
+	}
+
 	@Override
 	public List<String> supportedFrameAncestors() {
 		return frameAncestors;

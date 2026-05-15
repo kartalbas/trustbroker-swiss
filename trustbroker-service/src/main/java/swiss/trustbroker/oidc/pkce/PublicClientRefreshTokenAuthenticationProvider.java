@@ -45,8 +45,8 @@ public final class PublicClientRefreshTokenAuthenticationProvider implements Aut
 
 	@Override
 	public Authentication authenticate(Authentication authentication) {
-		PublicClientRefreshTokenAuthenticationToken publicClientAuthentication =
-				(PublicClientRefreshTokenAuthenticationToken) authentication;
+		PublicClientAuthenticationToken publicClientAuthentication =
+				(PublicClientAuthenticationToken) authentication;
 
 		if (!ClientAuthenticationMethod.NONE.equals(publicClientAuthentication.getClientAuthenticationMethod())) {
 			return null;
@@ -63,12 +63,12 @@ public final class PublicClientRefreshTokenAuthenticationProvider implements Aut
 			throwInvalidClient("authentication_method");
 		}
 
-		return new PublicClientRefreshTokenAuthenticationToken(registeredClient);
+		return new PublicClientAuthenticationToken(registeredClient);
 	}
 
 	@Override
 	public boolean supports(Class<?> authentication) {
-		return PublicClientRefreshTokenAuthenticationToken.class.isAssignableFrom(authentication);
+		return PublicClientAuthenticationToken.class.isAssignableFrom(authentication);
 	}
 
 	private static void throwInvalidClient(String parameterName) {

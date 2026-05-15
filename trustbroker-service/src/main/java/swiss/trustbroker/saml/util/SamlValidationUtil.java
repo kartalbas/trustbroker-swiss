@@ -15,10 +15,19 @@
 
 package swiss.trustbroker.saml.util;
 
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import swiss.trustbroker.common.exception.ExceptionUtil;
 import swiss.trustbroker.common.exception.RequestDeniedException;
+import swiss.trustbroker.common.exception.TechnicalException;
+import swiss.trustbroker.common.saml.dto.SamlBinding;
+import swiss.trustbroker.config.TrustBrokerProperties;
+import swiss.trustbroker.federation.xmlconfig.CounterParty;
+import swiss.trustbroker.homerealmdiscovery.util.RelyingPartySetupUtil;
 import swiss.trustbroker.saml.dto.ResponseData;
 
+@Slf4j
 public class SamlValidationUtil {
 
 	private SamlValidationUtil() {
@@ -43,5 +52,31 @@ public class SamlValidationUtil {
 		if (StringUtils.isEmpty(profileRequestId)) {
 			throw new RequestDeniedException(String.format("ID of profile request is null/empty: '%s", profileRequestId));
 		}
+	}
+
+	public static boolean validateProtocolRestrictions(CounterParty counterParty, SamlBinding actualBinding,
+			HttpServletRequest httpRequest, TrustBrokerProperties trustBrokerProperties, boolean tryOnly) {
+		if (RelyingPartySetupUtil.isPartyDisabled(counterParty, httpRequest, trustBrokerProperties.getNetwork())) {
+			ExceptionUtil.logOrThrow(String.format("%s=%s disabled",
+					counterParty.getClass().getSimpleName(), counterParty.getId()),
+					tryOnly, TechnicalException::new);
+			return false;
+		}
+		// SAML is also used internally for OIDC
+		if (!counterParty.isSamlEnabled(trustBrokerProperties.getSaml().isEnabled())
+				&& !counterParty.isOidcEnabled(trustBrokerProperties.getOidc().isEnabled())) {
+			ExceptionUtil.logOrThrow(String.format("%s issuerId=%s does not allow SAML",
+					counterParty.getClass().getSimpleName(), counterParty.getId()),
+					tryOnly, RequestDeniedException::new);
+			return false;
+
+		}
+		if (!counterParty.isValidInboundBinding(actualBinding, trustBrokerProperties.getSaml().getSamlBindings())) {
+			ExceptionUtil.logOrThrow(String.format("%s issuerId=%s does not support inbound binding=%s",
+					counterParty.getClass().getSimpleName(), counterParty.getId(), actualBinding),
+					tryOnly, RequestDeniedException::new);
+			return false;
+		}
+		return true;
 	}
 }

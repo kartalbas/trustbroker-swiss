@@ -26,7 +26,6 @@ package swiss.trustbroker.oidc;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -49,6 +48,7 @@ public class Saml2TokenGenerator implements OAuth2TokenGenerator<OAuth2AccessTok
 
 	private final TrustBrokerProperties trustBrokerProperties;
 
+	@SuppressWarnings("unchecked")
 	@Override
 	public OAuth2AccessToken generate(OAuth2TokenContext context) {
 
@@ -59,7 +59,7 @@ public class Saml2TokenGenerator implements OAuth2TokenGenerator<OAuth2AccessTok
 			throw new IllegalArgumentException("Authorization is null for SAML2 token generation");
 		}
 
-		Map<String, Object> attributes = (HashMap) authorization.getAttributes().get("subjectTokenClaims");
+		Map<String, Object> attributes = (Map<String,Object>) authorization.getAttributes().get("subjectTokenClaims");
 		List<Attribute> attributeList = new ArrayList<>();
 		for (Map.Entry<String, Object> entry : attributes.entrySet()) {
 			var key = entry.getKey();

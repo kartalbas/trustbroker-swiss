@@ -13,8 +13,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { DOCUMENT } from '@angular/common';
-import { Component, Inject } from '@angular/core';
+import { Component, DOCUMENT, Inject } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 
 import { Theme } from './model/Theme';

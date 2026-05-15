@@ -11,17 +11,13 @@
 - Config:
   - Improved profile merging for attributes with defaults.
 
-### Bugfixes
-- Config:
-  - Fix duplicated Gauge registration warning.
-
-# 1.14.0 (2026-05)
+# 1.14.0.20260513T061155Z
 
 ### Dependency upgrades
 
 - Backend:
   - JDK 21.0.10
-  - Spring Boot 3.5.13
+  - Spring Boot 3.5.14
   - Spring Cloud 2025.0.1
   - nimbus-jose-jwt 9.48
   - JGit 7.5.0.202512021534-r
@@ -32,7 +28,7 @@
   - mariadb-java-client 3.5.7
   - PostgreSQL 42.7.10
   - Groovy 4.0.30
-  - Bouncy Castle 1.83
+  - Bouncy Castle 1.84
 - Frontend:
   - Angular 20.3.17
   - Oblique 14.2.1
@@ -68,10 +64,15 @@
  - Fix handling of missing userinfo endpoint in CP.
  - Fix warnings in logs on configuration reload.
  - Allow token introspection between clients in the same SetupRP.
+ - Claims mapper TIME_EPOCH now idempotent.
+- SAML:
+  - Case normalization for redirect binding signature check.
 - WSTrust:
   - Accept RST ISSUE envelope signed by assertion issuer.
 - DB:
   - Fixed BLOB type for PostgreSQL.
+- Config:
+  - Fix duplicated Gauge registration warning.
 
 ## 1.13.0.20260317T170552Z
 

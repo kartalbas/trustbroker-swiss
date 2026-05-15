@@ -51,7 +51,7 @@ public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint 
 		// OIDC pre-conditions
 		var clientId = OidcSessionSupport.getOidcClientId(request, relyingPartyDefinitions);
 		checkClientKnown(clientId, request); // we have an Oidc.Client
-		checkRelyingPartyKnown(clientId, request); // we have an enabled RelyingParty
+		validateProtocolRestrictions(clientId, request); // we have an enabled RelyingParty
 
 		// fallback handling for /introspect just in case we accidentally end up in real federated login
 		if (ApiSupport.isIntrospectRequest(request.getRequestURI())) {
@@ -75,14 +75,9 @@ public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint 
 		entryPoint.commence(request, response, authException);
 	}
 
-	private void checkRelyingPartyKnown(String clientId, HttpServletRequest request) {
+	private void validateProtocolRestrictions(String clientId, HttpServletRequest request) {
 		var relyingParty = relyingPartyDefinitions.getRelyingPartyByOidcClientId(clientId, null, trustBrokerProperties, false);
-		if (relyingPartyDefinitions.isRpDisabled(relyingParty, request, trustBrokerProperties.getNetwork())) {
-			throw OidcExceptionHelper.createOidcException(OAuth2ErrorCodes.INVALID_REQUEST, String.format(
-					"Disabled clientId on request='%s %s' in request from %s",
-					request.getMethod(), request.getRequestURI(),
-					WebSupport.getClientHint(request, trustBrokerProperties.getNetwork())), "Disabled client_id");
-		}
+		OidcValidator.validateProtocolRestrictions(relyingParty, clientId, request, trustBrokerProperties);
 	}
 
 	private void checkClientKnown(String clientId, HttpServletRequest request) {

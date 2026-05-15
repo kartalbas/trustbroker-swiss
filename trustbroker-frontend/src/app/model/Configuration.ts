@@ -23,4 +23,5 @@ export class Configuration {
 	themeCookie: CookieConfiguration;
 	languageCookie: CookieConfiguration;
 	announcementCookie: CookieConfiguration;
+	claimsProviderNoticeCookie: CookieConfiguration;
 }

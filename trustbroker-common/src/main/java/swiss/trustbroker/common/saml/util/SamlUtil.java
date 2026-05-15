@@ -22,8 +22,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import javax.xml.namespace.QName;
 
@@ -55,6 +57,7 @@ import org.opensaml.saml.saml2.core.NameIDType;
 import org.opensaml.saml.saml2.core.Response;
 import org.opensaml.security.SecurityException;
 import org.opensaml.security.credential.Credential;
+import org.opensaml.security.x509.BasicX509Credential;
 import org.opensaml.security.x509.X509Credential;
 import org.opensaml.xmlsec.algorithm.AlgorithmSupport;
 import org.opensaml.xmlsec.crypto.XMLSigningUtil;
@@ -246,9 +249,13 @@ public class SamlUtil {
 			boolean matched = sig.verify(signatureBytes);
 			log.debug("Signature matched={} for credential {}", matched, credential.getEntityId());
 			if (!matched && redirectBindingSignatureWarning) {
-				log.warn("Redirect binding signature mismatch for credential {} accepted due to "
+				var entityId = credential instanceof BasicX509Credential x509 ?
+						x509.getEntityCertificate().getSubjectX500Principal()
+								+ " valid until " + x509.getEntityCertificate().getNotAfter()
+						: null;
+				log.warn("Redirect binding signature mismatch for x509Trust='{}' accepted due to "
 						+ "trustbroker.config.security.redirectBindingSignatureWarning=true - correct RP SignerTruststore",
-						credential.getEntityId());
+						entityId);
 				return true;
 			}
 			return matched;
@@ -651,11 +658,26 @@ public class SamlUtil {
 			return Collections.emptyList();
 		}
 		return assertion.getConditions().getAudienceRestrictions()
-				.stream()
-				.map(AudienceRestriction::getAudiences)
-				.flatMap(List::stream)
-				.map(Audience::getURI)
-				.filter(Objects::nonNull)
-				.toList();
+						.stream()
+						.map(AudienceRestriction::getAudiences)
+						.flatMap(List::stream)
+						.map(Audience::getURI)
+						.filter(Objects::nonNull)
+						.toList();
+	}
+
+	public static Map<String, Object> extractAttributesFromAssertion(Assertion assertion) {
+		Map<String, Object> samlAttributes = new HashMap<>();
+		if (!assertion.getAttributeStatements().isEmpty()) {
+			var assertionAttributes = assertion.getAttributeStatements().get(0).getAttributes();
+			for (Attribute attribute : assertionAttributes) {
+				var namespaceUri = attribute.getName();
+				var values = SamlUtil.getValuesFromAttribute(attribute);
+				if (namespaceUri != null && !values.isEmpty()) {
+					samlAttributes.put(namespaceUri, values); // free to be processed afterward
+				}
+			}
 		}
+		return samlAttributes;
+	}
 }

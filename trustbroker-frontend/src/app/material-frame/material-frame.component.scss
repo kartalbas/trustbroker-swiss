@@ -40,6 +40,14 @@ app-mat-frame {
 		display: flex;
 		flex-direction: column;
 		justify-content: space-between;
+
+		color: white;
+		background-color: variables.$ob-dark;
+		padding: 8px 24px;
+
+		a {
+			color: white;
+		}
 	}
 
 	.w-100 {

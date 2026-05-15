@@ -25,20 +25,24 @@ package swiss.trustbroker.oidc.pkce;
 
 import jakarta.annotation.Nullable;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.util.StringUtils;
+import swiss.trustbroker.common.util.OidcUtil;
+import swiss.trustbroker.util.ApiSupport;
 
-public final class PublicClientRefreshTokenAuthenticationConverter implements AuthenticationConverter {
+public final class PublicClientRefreshTokenAndTokenExchangeAuthenticationConverter implements AuthenticationConverter {
 
 	@Nullable
 	@Override
 	public Authentication convert(HttpServletRequest request) {
+
 		// grant_type (REQUIRED)
 		String grantType = request.getParameter(OAuth2ParameterNames.GRANT_TYPE);
-		if (!AuthorizationGrantType.REFRESH_TOKEN.getValue().equals(grantType)) {
+		if (!isPKCETokenExchange(request) && !AuthorizationGrantType.REFRESH_TOKEN.getValue().equals(grantType)) {
 			return null;
 		}
 
@@ -48,6 +52,27 @@ public final class PublicClientRefreshTokenAuthenticationConverter implements Au
 			return null;
 		}
 
-		return new PublicClientRefreshTokenAuthenticationToken(clientId);
+		return new PublicClientAuthenticationToken(clientId);
+	}
+
+	public static boolean isPKCETokenExchange(HttpServletRequest request) {
+		if (!request.getRequestURI().endsWith(ApiSupport.OIDC_TOKEN) ||
+				!"POST".equalsIgnoreCase(request.getMethod()) || request.getParameterMap() == null) {
+			return false;
+		}
+
+		var grantType = request.getParameter(OidcUtil.GRANT_TYPE);
+		if (!AuthorizationGrantType.TOKEN_EXCHANGE.getValue().equals(grantType)) {
+			return false;
+		}
+
+		// Check authentication
+		var authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+		var clientId = request.getParameter(OidcUtil.OIDC_CLIENT_ID);
+		var clientSecret = request.getParameter(OidcUtil.CLIENT_SECRET);
+		boolean hasClientAuthHeader = authHeader != null && !authHeader.isBlank();
+		boolean hasClientCredentialsInBody = clientId != null && clientSecret != null;
+
+		return !hasClientAuthHeader && !hasClientCredentialsInBody;
 	}
 }

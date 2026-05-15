@@ -18,24 +18,19 @@ package swiss.trustbroker.ldap.service;
 import static org.springframework.core.Ordered.LOWEST_PRECEDENCE;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import javax.naming.directory.SearchControls;
 
-import io.micrometer.core.annotation.Timed;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.text.StringSubstitutor;
 import org.springframework.core.annotation.Order;
-import org.springframework.ldap.core.LdapTemplate;
-import org.springframework.ldap.support.LdapEncoder;
 import org.springframework.stereotype.Service;
-import swiss.trustbroker.api.idm.dto.IdmRequest;
 import swiss.trustbroker.api.idm.dto.IdmRequests;
 import swiss.trustbroker.api.idm.dto.IdmResult;
 import swiss.trustbroker.api.idm.service.IdmQueryService;
@@ -45,12 +40,12 @@ import swiss.trustbroker.api.sessioncache.dto.AttributeName;
 import swiss.trustbroker.api.sessioncache.dto.CpResponseData;
 import swiss.trustbroker.common.config.ExternalStores;
 import swiss.trustbroker.common.exception.TechnicalException;
-import swiss.trustbroker.common.tracing.Traced;
 import swiss.trustbroker.config.TrustBrokerProperties;
+import swiss.trustbroker.federation.xmlconfig.IdmQuery;
 import swiss.trustbroker.federation.xmlconfig.ProfileSelection;
 import swiss.trustbroker.federation.xmlconfig.ProfileSelectionMode;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
-import swiss.trustbroker.ldap.model.LdapAttributeMapper;
+import swiss.trustbroker.profileselection.service.LdapIdentitySelectionService;
 import swiss.trustbroker.util.IdmAttributeUtil;
 
 @Service
@@ -59,12 +54,9 @@ import swiss.trustbroker.util.IdmAttributeUtil;
 @AllArgsConstructor
 public class LdapService implements IdmQueryService {
 
-	private static final String COLON = ":";
-	private static final String SUBJECT_NAME_ID = "subjectNameId";
-	private static final String PLACEHOLDER_PATTERN = "\\$\\{([^}]+)}";
-	private static final String DEFAULT_PROFILE_SEPARATOR = "\\";
+	public static final String PROFILE_SEPARATOR = LdapIdentitySelectionService.PROFILE_SEPARATOR;
 
-	private final LdapTemplate ldapTemplate;
+	private final LdapClient ldapClient;
 
 	private final TrustBrokerProperties trustBrokerProperties;
 
@@ -81,10 +73,9 @@ public class LdapService implements IdmQueryService {
 		return Optional.of(result);
 	}
 
-	@Timed("ldap")
-	@Traced
-	IdmResult getLdapAttributes(RelyingPartyConfig relyingPartyConfig, CpResponseData cpResponse, IdmRequests idmRequests) {
+	public IdmResult getLdapAttributes(RelyingPartyConfig relyingPartyConfig, CpResponseData cpResponse, IdmRequests idmRequests) {
 		var result = new IdmResult();
+		List<Map<String, List<String>>> unprocessedAttributes = new LinkedList<>();
 		var attributeCount = 0;
 		var querySuccessCount = 0;
 
@@ -96,59 +87,164 @@ public class LdapService implements IdmQueryService {
 				continue;
 			}
 			result.getQueriedStores().add(requestedStore);
-			final var appFilter = idmQuery.getAppFilter();
-			final var formattedQuery = queryFilterFormatter(appFilter, cpResponse, relyingPartyConfig.getId());
-			final var base = getQueryBase(idmQuery.getSubResource(), relyingPartyConfig);
-			log.debug("LDAP call: issuer={} relyingPartyIssuerId={} base={} query={} ",
-					cpResponse.getIssuerId(), relyingPartyConfig.getId(), base, formattedQuery);
-			final var attrs = ldapTemplate.search(base, formattedQuery, SearchControls.SUBTREE_SCOPE,
-					getAttributesToFetch(idmQuery), new LdapAttributeMapper());
-			log.debug("LDAP search result for rp={} with query={} results={}", relyingPartyConfig.getId(), formattedQuery, attrs);
+
+			var attrs = ldapClient.search(relyingPartyConfig, cpResponse, idmQuery, unprocessedAttributes);
 
 			if (!attrs.isEmpty()) {
 				querySuccessCount += 1;
-				final var profileSelectionProperties = ((RelyingParty) relyingPartyConfig).getProfileSelection();
-				if (profileSelectionProperties != null && profileSelectionProperties.isProfileSelectionEnabled() &&
-						!ProfileSelectionMode.SILENT.name().equals(profileSelectionProperties.getProfileSelectionMode())) {
-					prefixProfileAttributes(relyingPartyConfig, profileSelectionProperties, attrs);
-				}
-				final var attributes = aggregateAndFindAttributes(attrs, relyingPartyConfig, idmQuery);
-				result.getUserDetails().putAll(attributes);
-				attributeCount += attributes.size();
+				unprocessedAttributes.addAll(attrs);
 			}
 		}
 
+		final var profileSelectionProperties = ((RelyingParty) relyingPartyConfig).getProfileSelection();
+		List<Map<String, List<String>>> prefixedProfiles = new ArrayList<>();
+		if (profileSelectionProperties != null && profileSelectionProperties.isProfileSelectionEnabled() &&
+				!ProfileSelectionMode.SILENT.name().equals(profileSelectionProperties.getProfileSelectionMode())) {
+			prefixedProfiles = prefixProfileAttributes(relyingPartyConfig, profileSelectionProperties, unprocessedAttributes);
+		}
+		final var attributes = aggregateAndFindAttributes(prefixedProfiles, relyingPartyConfig);
+		result.getUserDetails().putAll(attributes);
+		attributeCount += attributes.size();
+
 		if (log.isInfoEnabled()) {
-			log.info("IDM result ({}): Called directory with issuer={} nameID={} queryCount={} successCount={}",
-					ExternalStores.LDAP.name(), cpResponse.getIssuerId(), cpResponse.getNameId(),
-					idmRequests.getQueryList().size(), querySuccessCount);
+			log.info("IDM result ({}): Called directory with issuer={} nameID={} resultCount={} successCount={}",
+					ExternalStores.LDAP.name(), cpResponse.getIssuerId(), cpResponse.getNameId(), attributeCount, querySuccessCount);
 		}
 
 		result.setOriginalUserDetailsCount(attributeCount);
 		return result;
 	}
 
-	String getQueryBase(String subResource, RelyingPartyConfig relyingPartyConfig) {
-		if (subResource == null || subResource.isEmpty()) {
-			throw new TechnicalException(String.format("Missing subResource for rp=%s HINT: Set RelyingParty.IDMLookup.IDMQuery.SubResource", relyingPartyConfig.getId()));
+	List<Map<String, List<String>>> prefixProfileAttributes(RelyingPartyConfig relyingPartyConfig, ProfileSelection profileSelectionProperties, List<Map<String, List<String>>> attrs) {
+		final var profileSelector = getProfileSelector(profileSelectionProperties.getProfileSelector(), relyingPartyConfig.getId());
+		if (profileSelector == null) {
+			throw new TechnicalException(String.format(
+					"LDAP ProfileSelection.profileSelector cannot be null or empty for rp=%s. HINT: set RelyingParty.ProfileSelection.profileSelector",  relyingPartyConfig.getId()));
 		}
-		return subResource;
-	}
+		final var orgSelector = getProfileSelector(profileSelectionProperties.getOrganizationSelector(), relyingPartyConfig.getId());
+		final var organizationSelector = profileSelectionProperties.getOrganizationSelector();
+		if (!userWithMultiProfiles(attrs, profileSelector) && !userWithMultiProfiles(attrs, orgSelector)) {
+			log.debug("No multiprofile found with profileSelector={} and orgSelector={}", profileSelector, orgSelector);
+			applySingleProfileN2K(profileSelectionProperties, attrs, profileSelector, organizationSelector);
+			return attrs;
+		}
 
-	void prefixProfileAttributes(RelyingPartyConfig relyingPartyConfig, ProfileSelection profileSelectionProperties, List<Map<String, List<String>>> attrs) {
-		final var profileSelector = getProfileSelector(profileSelectionProperties, relyingPartyConfig.getId());
-		if (!userWithMultiProfiles(attrs, profileSelector)) {
-			return;
-		}
-		for (var profile : attrs) {
+		List<Map<String, List<String>>> profiles = new ArrayList<>();
+		List<Map<String, List<String>>> organizations = new ArrayList<>();
+		getProfilesAndOrgs(attrs, organizationSelector, profileSelector, organizations, profiles);
+		log.debug("Total number of profiles={} and organizations={}", profiles.size(), organizations.size());
+
+		for (var profile : profiles) {
 			// no such an attribute in LDAP result
 			if (profile.get(profileSelector) == null) {
 				throw new TechnicalException(String.format("ProfileSelection.profileSelector=%s attributes not found for rpId=%s",
 						profileSelector, relyingPartyConfig.getId()));
 			}
-			final var profileSelectorValue = profile.get(profileSelector).get(0);
+			String orgId = null;
+			var profileSelectorValue = profile.get(profileSelector).getFirst();
+			if (organizationSelector != null) {
+				// Profiles were split by organization, the organizationSelector only has one element
+				orgId = profile.get(organizationSelector).getFirst();
+				profileSelectorValue = profileSelectorValue + PROFILE_SEPARATOR + orgId;
+				Map<String, List<String>> orgEntry = getOrgEntryByOrgId(organizations, orgId, organizationSelector);
+				if (!orgEntry.isEmpty()) {
+					// Add addition organization information to the profile
+					addAttributesToProfile(profile, orgEntry);
+				}
+			}
+			applyN2K(profileSelectionProperties, profile, profileSelectorValue, orgId);
 			prefixValuesWithProfileSelector(profileSelectorValue, profileSelector, profile);
 		}
+
+		return profiles;
+	}
+
+	private void applySingleProfileN2K(ProfileSelection profileSelectionProperties, List<Map<String, List<String>>> profiles, String profileSelector, String organizationSelector) {
+		if (profiles.isEmpty()) {
+			return;
+		}
+		var profileSelectorValue = profiles.getFirst().get(profileSelector) != null ? profiles.getFirst().get(profileSelector).getFirst() : null;
+		var orgSelectorValue = profiles.getFirst().get(organizationSelector) != null ? profiles.getFirst().get(organizationSelector).getFirst() : null;
+		applyN2K(profileSelectionProperties, profiles.getFirst(), profileSelectorValue, orgSelectorValue);
+	}
+
+	private void applyN2K(ProfileSelection profileSelectionProperties, Map<String, List<String>> profile, String profileSelectorValue, String orgId) {
+		if (!profileSelectionProperties.isN2kEnabled()) {
+			return;
+		}
+		var n2kSeparator = trustBrokerProperties.getLdap().getN2kSeparator();
+		profile.replaceAll((key, values) -> {
+			if (values == null) {
+				return null;
+			}
+			return values.stream().map(value -> {
+				boolean containsSeparator = value.contains(n2kSeparator);
+				boolean containsOrg = orgId != null && value.contains(orgId);
+				boolean containsProfile = profileSelectorValue != null && value.contains(profileSelectorValue);
+				if (containsSeparator && (containsOrg || containsProfile)) {
+					String[] split = value.split(n2kSeparator);
+					if (split.length == 2) {
+						return split[1];
+					}
+				}
+				return value;
+			}).toList();
+		});
+	}
+
+	private static void getProfilesAndOrgs(List<Map<String, List<String>>> attrs, String organizationSelector, String profileSelector, List<Map<String, List<String>>> organizations, List<Map<String, List<String>>> profiles) {
+		if (organizationSelector != null) {
+			for (var profile : attrs) {
+				if (profile.get(profileSelector) == null) {
+					organizations.add(profile);
+					continue;
+				}
+				List<String> orgProfiles = profile.get(organizationSelector);
+				if (orgProfiles == null || orgProfiles.isEmpty()) {
+					log.warn("Invalid profile. Missing organization entry for profile={}", profile);
+				} else {
+					log.debug("Splitting profile={} by organizationSelector={}", profile, organizationSelector);
+					splitProfileByOrgs(organizationSelector, profiles, profile, orgProfiles);
+				}
+			}
+		}
+		else {
+			profiles.addAll(attrs);
+		}
+	}
+
+	private static void splitProfileByOrgs(String organizationSelector, List<Map<String, List<String>>> profiles, Map<String, List<String>> profile, List<String> orgProfiles) {
+		for (String orgProfile : orgProfiles) {
+			List<String> organizationAttr = new ArrayList<>();
+			organizationAttr.add(orgProfile);
+			List<String> unselectedOrgs = orgProfiles.stream().filter(org -> !org.equals(orgProfile)).toList();
+			Map<String, List<String>> newProfile = profile.entrySet()
+														  .stream()
+														  .collect(Collectors.toMap(Map.Entry::getKey,
+																  e -> e.getValue()
+																		.stream()
+																		// If data contains orgId -> drop data from different organization
+																		.filter(v -> unselectedOrgs.stream().noneMatch(v::contains))
+																		.toList()
+														  ));
+			newProfile.put(organizationSelector, organizationAttr);
+			profiles.add(newProfile);
+		}
+	}
+
+	private void addAttributesToProfile(Map<String, List<String>> profile, Map<String, List<String>> orgEntry) {
+		for (var entry : orgEntry.entrySet()) {
+			if (!profile.containsKey(entry.getKey())) {
+				profile.put(entry.getKey(), entry.getValue());
+			}
+		}
+	}
+
+	private Map<String, List<String>> getOrgEntryByOrgId(List<Map<String, List<String>>> organizations, String orgId, String organizationSelector) {
+		List<Map<String, List<String>>> collect = organizations.stream()
+															  .filter(orgEntry -> orgEntry.get(organizationSelector) != null && orgEntry.get(organizationSelector).contains(orgId))
+															  .toList();
+		return collect.isEmpty() ? Collections.emptyMap() : collect.getFirst();
 	}
 
 	boolean userWithMultiProfiles(List<Map<String, List<String>>> attrs, String profileSelector) {
@@ -162,81 +258,31 @@ public class LdapService implements IdmQueryService {
 		return userProfiles.size() > 1;
 	}
 
-	String queryFilterFormatter(String appFilter, CpResponseData cpResponse, String rpId) {
-		if (appFilter == null || appFilter.isEmpty()) {
-			throw new TechnicalException(String.format(
-					"AppFilter is null or empty for rp=%s HINT: configure IDMLookup.IDMQuery.AppFilter", rpId));
-		}
-		var ldapUndefined = trustBrokerProperties.getLdap().getUndefined();
-		// Extract placeholders
-		var pattern = Pattern.compile(PLACEHOLDER_PATTERN);
-		var matcher = pattern.matcher(appFilter);
-
-		List<String> placeholders = new ArrayList<>();
-
-		while (matcher.find()) {
-			placeholders.add(matcher.group(1));
-		}
-
-		// Fill up placeholders
-		Map<String, Object> params = new HashMap<>();
-
-		for (var placeholder : placeholders) {
-			var placeholderValue = getPlaceholderValue(placeholder, cpResponse);
-			if (placeholderValue == null && ldapUndefined != null) {
-				placeholderValue = ldapUndefined;
-
-			}
-			params.put(placeholder, LdapEncoder.filterEncode(placeholderValue));
-		}
-
-		return StringSubstitutor.replace(appFilter, params, "${", "}");
-	}
-
-	String getPlaceholderValue(String placeholder, CpResponseData cpResponse) {
-		if (SUBJECT_NAME_ID.equals(placeholder)) {
-			return cpResponse.getNameId();
-		}
-		else if (isChainedQuery(placeholder)) {
-			return getUserDetail(placeholder, cpResponse);
-		}
-		else {
-			return cpResponse.getAttribute(placeholder);
-		}
-	}
-
-	private String[] getAttributesToFetch(IdmRequest idmQuery) {
-		final var attributeSelection = idmQuery.getAttributeSelection();
-		log.debug("Number of attributes to be fetch from LDAP={}", attributeSelection.size());
-		if (attributeSelection.isEmpty()) {
-			return new String[]{ "*" };
-		}
-		return attributeSelection.stream().map(AttributeName::getName).toArray(String[]::new);
-	}
-
-	String getProfileSelector(ProfileSelection profileSelectionProperties, String rpId) {
-		final var profileSelector = profileSelectionProperties.getProfileSelector();
+	String getProfileSelector(String profileSelector, String rpId) {
 		if (profileSelector != null && !profileSelector.isEmpty()) {
 			log.debug("LDAP Profile Selection for rp={}: using profileSelector={}", rpId, profileSelector);
 			return profileSelector;
 		}
-		throw new TechnicalException(String.format(
-				"LDAP ProfileSelection.profileSelector cannot be null or empty for rp=%s. HINT: set RelyingParty.ProfileSelection.profileSelector", rpId));
+		return null;
 	}
 
-	void prefixValuesWithProfileSelector(String profileSelectorValue, String exclude, Map<String, List<String>> profile) {
+	void prefixValuesWithProfileSelector(String profileSelectorValue, String profileSelector, Map<String, List<String>> profile) {
 		if (profileSelectorValue == null) {
-			log.warn("Profile Selection of LDAP wrongly configured. Missing ProfileSelection.profileSelector={}. HINT: set RelyingParty.ProfileSelection.profileSelector", exclude);
+			log.warn("Profile Selection of LDAP wrongly configured. Missing ProfileSelection.profileSelector={}. HINT: set RelyingParty.ProfileSelection.profileSelector", profileSelector);
 			return;
 		}
 
-		profile.replaceAll((key, values) -> key.equals(exclude) || values == null ?
-				values : values.stream().map(value -> profileSelectorValue + DEFAULT_PROFILE_SEPARATOR + value).toList());
+		profile.replaceAll((key, values) -> {
+			if (values == null) {
+				return null;
+			}
+			boolean isProfileSelector = key.equals(profileSelector);
+			return values.stream().map(value -> isProfileSelector ? profileSelectorValue : profileSelectorValue + PROFILE_SEPARATOR + value).toList();
+		});
 	}
 
 	private Map<AttributeName, List<String>> aggregateAndFindAttributes(List<Map<String, List<String>>> attrs,
-																		RelyingPartyConfig relyingPartyConfig,
-																		IdmRequest idmQuery) {
+																		RelyingPartyConfig relyingPartyConfig) {
 		Map<String, List<String>> aggregatedAttributes = new HashMap<>();
 
 		for (var attrMap : attrs) {
@@ -253,20 +299,8 @@ public class LdapService implements IdmQueryService {
 			entry.setValue(deduplicated);
 		}
 
+		IdmQuery idmQuery = IdmQuery.builder().name(ExternalStores.LDAP.name()).build();
 		var attributeSelection = IdmAttributeUtil.getIdmAttributeSelection(relyingPartyConfig, idmQuery);
 		return IdmAttributeUtil.getAttributesForQueryResponse(aggregatedAttributes, idmQuery.getName(), attributeSelection);
 	}
-
-	boolean isChainedQuery(String placeholder) {
-		return placeholder.lastIndexOf(COLON) != -1;
-	}
-
-	private String getUserDetail(String placeholder, CpResponseData cpResponse) {
-		// Example: placeholder in form of `IDM:<query_name>:<definition_name>`
-		final var lastColonIndex = placeholder.lastIndexOf(COLON);
-		final var claimName = placeholder.substring(lastColonIndex + 1);
-		final var source = placeholder.substring(0, lastColonIndex);
-		return cpResponse.getUserDetail(claimName, source);
-	}
-
 }

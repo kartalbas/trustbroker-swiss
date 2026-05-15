@@ -32,8 +32,6 @@ import java.util.Set;
 import lombok.Builder;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import net.shibboleth.shared.collection.Pair;
-import net.shibboleth.shared.net.URLBuilder;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.opensaml.core.xml.XMLObject;
@@ -522,40 +520,24 @@ public class AssertionValidator {
 			throw new TechnicalException(
 					String.format("Called with invalid context for binding %s", signatureContext.getBinding()));
 		}
+
+		// check all required parameters in the context
 		var urlBuilder = urlBuilderForRedirectBinding(signatureContext);
-		var samlMessageName = SamlIoUtil.SAML_REQUEST_NAME;
-		var samlMessage = WebSupport.getUniqueQueryParameter(urlBuilder, samlMessageName);
-		if (samlMessage == null) {
-			samlMessageName = SamlIoUtil.SAML_RESPONSE_NAME;
-			samlMessage = WebSupport.getUniqueQueryParameter(urlBuilder, samlMessageName);
-		}
-		// we should not get here without a message
-		if (samlMessage == null) {
-			throw new RequestDeniedException(String.format("Missing message in URL: %s", signatureContext.getContext()));
-		}
 
+		// signature (checked against message&relaystate&sigalg according to saml2 binding section 3.4.4.1
 		var signature = WebSupport.getUniqueQueryParameter(urlBuilder, SamlIoUtil.SAML_REDIRECT_SIGNATURE);
-		var signatureAlgorithm = WebSupport.getUniqueQueryParameter(urlBuilder, SamlIoUtil.SAML_REDIRECT_SIGNATURE_ALGORITHM);
-		if (signature == null || signatureAlgorithm == null) {
-			throw new RequestDeniedException(String.format("%s or %s missing in URL: %s",
-					SamlIoUtil.SAML_REDIRECT_SIGNATURE, SamlIoUtil.SAML_REDIRECT_SIGNATURE_ALGORITHM,
-					StringUtil.clean(signatureContext.getContext())));
+		if (signature == null) {
+			throw new RequestDeniedException(String.format("%s missing in URL: %s",
+					SamlIoUtil.SAML_REDIRECT_SIGNATURE,	StringUtil.clean(signatureContext.getContext())));
 		}
 
-		// relayState required according to spec when provided
-		var relayState = WebSupport.getUniqueQueryParameter(urlBuilder, SamlIoUtil.SAML_RELAY_STATE);
-		var queryParams = urlBuilder.getQueryParams();
-		queryParams.clear();
-		queryParams.add(new Pair<>(samlMessageName, samlMessage));
-		if (StringUtils.isNotEmpty(relayState)) {
-			queryParams.add(new Pair<>(SamlIoUtil.SAML_RELAY_STATE, relayState));
-		}
-		queryParams.add(new Pair<>(SamlIoUtil.SAML_REDIRECT_SIGNATURE_ALGORITHM, signatureAlgorithm));
+		// prepare signature check data
 		var queryString = urlBuilder.buildQueryString();
 		var signatureBytes = Base64Util.decode(signature);
+		var signatureAlgorithm = urlBuilder.getSignatureAlgorithm();
 
-		// signature check (optional if not required by config)
-		boolean signatureValid = SamlUtil.isRedirectSignatureValid(credentials, signatureAlgorithm, queryString,
+		// signature check on message&relaystate&sigalg (optional if not required by config)
+		var signatureValid = SamlUtil.isRedirectSignatureValid(credentials, signatureAlgorithm, queryString,
 				signatureBytes, redirectBindingSignatureWarning);
 		if (!signatureValid) {
 			throw new RequestDeniedException(String.format("%s or %s invalid in URL: %s",
@@ -566,11 +548,9 @@ public class AssertionValidator {
 		log.debug("Accepted valid SAML redirect message on: {}", signatureContext.getContext());
 	}
 
-	private static URLBuilder urlBuilderForRedirectBinding(SignatureContext signatureContext) {
+	private static RedirectUrlBuilder urlBuilderForRedirectBinding(SignatureContext signatureContext) {
 		try {
-			// URLBuilder expects a full URL, we only care about the query params here
-			var url = "https://localhost" + signatureContext.getContext();
-			return new URLBuilder(url);
+			return new RedirectUrlBuilder(signatureContext);
 		}
 		catch (final MalformedURLException e) {
 			// an invalid URL could be an attack (or a bug)

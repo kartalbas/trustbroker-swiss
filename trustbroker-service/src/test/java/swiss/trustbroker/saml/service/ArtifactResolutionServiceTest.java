@@ -65,6 +65,7 @@ import swiss.trustbroker.audit.service.AuditService;
 import swiss.trustbroker.common.config.KeystoreProperties;
 import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.saml.dto.ArtifactResolutionParameters;
+import swiss.trustbroker.common.saml.dto.SamlBinding;
 import swiss.trustbroker.common.saml.service.ArtifactCacheService;
 import swiss.trustbroker.common.saml.util.Base64Util;
 import swiss.trustbroker.common.saml.util.OpenSamlUtil;
@@ -75,11 +76,13 @@ import swiss.trustbroker.common.saml.util.SamlUtil;
 import swiss.trustbroker.common.saml.util.SoapUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.config.dto.ArtifactResolution;
+import swiss.trustbroker.config.dto.OidcProperties;
 import swiss.trustbroker.config.dto.SamlProperties;
 import swiss.trustbroker.config.dto.SecurityChecks;
 import swiss.trustbroker.federation.xmlconfig.ArtifactBinding;
 import swiss.trustbroker.federation.xmlconfig.ArtifactBindingMode;
 import swiss.trustbroker.federation.xmlconfig.ClaimsParty;
+import swiss.trustbroker.federation.xmlconfig.FeatureEnum;
 import swiss.trustbroker.federation.xmlconfig.ProtocolEndpoints;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
 import swiss.trustbroker.federation.xmlconfig.Saml;
@@ -145,6 +148,8 @@ class ArtifactResolutionServiceTest {
 		security.setRequireSignedArtifactResolve(false);
 		security.setRequireSignedArtifactResponse(false);
 		doReturn(security).when(trustBrokerProperties).getSecurity();
+		doReturn(new SamlProperties()).when(trustBrokerProperties).getSaml();
+		doReturn(new OidcProperties()).when(trustBrokerProperties).getOidc();
 	}
 
 	@Test
@@ -179,59 +184,48 @@ class ArtifactResolutionServiceTest {
 	}
 
 	@Test
-	void isRelyingPartyValid() {
+	void isCounterPartyValid() {
 		var saml = buildSaml();
 		var binding = saml.getArtifactBinding();
 		var rp = buildRelyingParty(saml);
-		assertThat(ArtifactResolutionService.isRelyingPartyValid(Optional.of(rp)), is(true));
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(true));
+
+		// RP invalid or disabled
+		rp.setEnabled(FeatureEnum.INVALID);
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(false));
+		rp.setEnabled(FeatureEnum.FALSE);
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(false));
+		rp.setEnabled(FeatureEnum.TRUE);
+
+		// SAML disabled
+		saml.setEnabled(false);
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(false));
+		saml.setEnabled(true);
+
+		// SAML binding disabled
+		saml.setSupportedBindings(List.of(SamlBinding.POST, SamlBinding.REDIRECT));
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(false));
+		saml.setSupportedBindings(List.of(SamlBinding.POST, SamlBinding.REDIRECT, SamlBinding.ARTIFACT));
 
 		// not supported
 		saml.setArtifactBinding(ArtifactBinding.builder().inboundMode(ArtifactBindingMode.NOT_SUPPORTED).build());
-		assertThat(ArtifactResolutionService.isRelyingPartyValid(Optional.of(rp)), is(false));
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(false));
 
 		// missing binding
 		saml.setArtifactBinding(null);
-		assertThat(ArtifactResolutionService.isRelyingPartyValid(Optional.of(rp)), is(true));
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(true));
 
 		// empty binding
 		saml.setArtifactBinding(ArtifactBinding.builder().build());
-		assertThat(ArtifactResolutionService.isRelyingPartyValid(Optional.of(rp)), is(true));
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(true));
 
 		// missing protocol endpoints
 		saml.setArtifactBinding(binding);
 		saml.setProtocolEndpoints(null);
-		assertThat(ArtifactResolutionService.isRelyingPartyValid(Optional.of(rp)), is(false));
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.of(rp)), is(false));
 
 		// missing peer
-		assertThat(ArtifactResolutionService.isRelyingPartyValid(Optional.empty()), is(false));
-	}
-
-	@Test
-	void isClaimsPartyValid() {
-		var saml = buildSaml();
-		var binding = saml.getArtifactBinding();
-		var cp = buildClaimsParty(saml);
-		assertThat(ArtifactResolutionService.isClaimsPartyValid(Optional.of(cp)), is(true));
-
-		// not supported
-		saml.setArtifactBinding(ArtifactBinding.builder().inboundMode(ArtifactBindingMode.NOT_SUPPORTED).build());
-		assertThat(ArtifactResolutionService.isClaimsPartyValid(Optional.of(cp)), is(false));
-
-		// missing binding
-		saml.setArtifactBinding(null);
-		assertThat(ArtifactResolutionService.isClaimsPartyValid(Optional.of(cp)), is(true));
-
-		// empty binding
-		saml.setArtifactBinding(ArtifactBinding.builder().build());
-		assertThat(ArtifactResolutionService.isClaimsPartyValid(Optional.of(cp)), is(true));
-
-		// missing protocol endpoints
-		saml.setArtifactBinding(binding);
-		saml.setProtocolEndpoints(null);
-		assertThat(ArtifactResolutionService.isClaimsPartyValid(Optional.of(cp)), is(false));
-
-		// missing peer
-		assertThat(ArtifactResolutionService.isClaimsPartyValid(Optional.empty()), is(false));
+		assertThat(artifactResolutionService.isCounterPartyValid(Optional.empty()), is(false));
 	}
 
 	private static RelyingParty buildRelyingParty(Saml saml) {
@@ -240,13 +234,6 @@ class ArtifactResolutionServiceTest {
 		return RelyingParty.builder()
 				.id(RP_ISSUER_ID)
 				.rpSigner(rpSigner)
-				.saml(saml)
-				.build();
-	}
-
-	private static ClaimsParty buildClaimsParty(Saml saml) {
-		return ClaimsParty.builder()
-				.id(CP_ISSUER_ID)
 				.saml(saml)
 				.build();
 	}

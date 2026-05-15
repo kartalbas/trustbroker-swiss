@@ -37,7 +37,7 @@ class ClaimsProviderUtilTest {
 	@Test
 	void loadClaimsProviderSetup() {
 		var definition = RuleDefinitionUtilTest.class.getClassLoader().getResource(TEST_SETUP_CP).getFile();
-		var claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(definition);
+		var claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(definition, null);
 		assertThat(claimsProviderSetup.getClaimsParties(), hasSize(TestConstants.VALID_TEST_CPS));
 	}
 
@@ -45,7 +45,7 @@ class ClaimsProviderUtilTest {
 	void loadClaimsProviderSetupInvalid() {
 		var definition = RuleDefinitionUtilTest.class.getClassLoader().getResource(LATEST_INVALID_DEFINITION_PATH +
 				"SetupCPInvalidXml.xml").getFile();
-		var claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(definition);
+		var claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(definition, null);
 		assertThat(claimsProviderSetup.getClaimsParties(), hasSize(1));
 		var cp = claimsProviderSetup.getClaimsParties().get(0);
 		assertThat(cp.getId(), is(definition));
@@ -55,7 +55,7 @@ class ClaimsProviderUtilTest {
 	@Test
 	void loadRelyingPartySetup() {
 		var definition = RuleDefinitionUtilTest.class.getClassLoader().getResource(TEST_SETUP_RP).getFile();
-		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(definition);
+		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(definition, null);
 		assertThat(relyingPartySetup.getRelyingParties(), hasSize(TestConstants.VALID_TEST_RPS));
 	}
 
@@ -63,7 +63,7 @@ class ClaimsProviderUtilTest {
 	void loadRelyingPartySetupInvalid() {
 		var definition = RuleDefinitionUtilTest.class.getClassLoader().getResource(LATEST_INVALID_DEFINITION_PATH +
 				"SetupRPInvalidXml.xml").getFile();
-		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(definition);
+		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(definition, null);
 		assertThat(relyingPartySetup.getRelyingParties(), hasSize(1));
 		var rp = relyingPartySetup.getRelyingParties().get(0);
 		assertThat(rp.getId(), is(definition));

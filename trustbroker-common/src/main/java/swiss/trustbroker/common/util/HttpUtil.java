@@ -15,7 +15,6 @@
 
 package swiss.trustbroker.common.util;
 
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -172,6 +171,33 @@ public class HttpUtil {
 		return fetchHttpResponse(httpClient, HttpMethod.GET, uri, request, bodyHandler);
 	}
 
+	public static Optional<String> postHttpResponseString(HttpClient httpClient, URI uri, String body,
+			Map<String, String> headers) {
+		return submitHttpResponse(httpClient, uri, HttpMethod.POST,
+				HttpRequest.BodyPublishers.ofString(body), headers,
+				HttpResponse.BodyHandlers.ofString()).map(HttpResponse::body);
+	}
+
+	public static Optional<String> patchHttpResponseString(HttpClient httpClient, URI uri, String body,
+			Map<String, String> headers) {
+		return submitHttpResponse(httpClient, uri, HttpMethod.PATCH,
+				HttpRequest.BodyPublishers.ofString(body), headers,
+				HttpResponse.BodyHandlers.ofString()).map(HttpResponse::body);
+	}
+
+	// POST, PATCH, PUT with body
+	private static <T> Optional<HttpResponse<T>> submitHttpResponse(HttpClient httpClient, URI uri,
+			HttpMethod method, HttpRequest.BodyPublisher bodyPublisher, Map<String, String> headers,
+			HttpResponse.BodyHandler<T> bodyHandler) {
+		var requestBuilder = HttpRequest.newBuilder()
+				.uri(uri)
+				.method(method.name(), bodyPublisher);
+		if (headers != null) {
+			headers.forEach(requestBuilder::header);
+		}
+		return fetchHttpResponse(httpClient, method, uri, requestBuilder.build(), bodyHandler);
+	}
+
 	private static <T> Optional<HttpResponse<T>> fetchHttpResponse(HttpClient httpClient,
 			HttpMethod method, URI uri, // for tracing
 			HttpRequest request, HttpResponse.BodyHandler<T> bodyHandler) {
@@ -236,13 +262,13 @@ public class HttpUtil {
 				if (truststoreParameters != null && StringUtils.isNotEmpty(truststoreParameters.getSignerCert())) {
 					var password = CredentialUtil.processPassword(truststoreParameters.getPassword());
 					builder.loadTrustMaterial(
-							absoluteFile(keystoreBasePath, truststoreParameters.getSignerCert()),
+							DirectoryUtil.absoluteFile(keystoreBasePath, truststoreParameters.getSignerCert()),
 							CredentialUtil.passwordToCharArray(password));
 				}
 				if (keystoreParameters != null && StringUtils.isNotEmpty(keystoreParameters.getSignerCert())) {
 					var password = CredentialUtil.processPassword(keystoreParameters.getPassword());
 					builder.loadKeyMaterial(
-							absoluteFile(keystoreBasePath, keystoreParameters.getSignerCert()),
+							DirectoryUtil.absoluteFile(keystoreBasePath, keystoreParameters.getSignerCert()),
 							CredentialUtil.passwordToCharArray(password),
 							CredentialUtil.passwordToCharArray(password));
 				}
@@ -259,15 +285,6 @@ public class HttpUtil {
 					format("Building SSLContext failed for truststoreParameters=%s keystoreParameters=%s ",
 							truststoreParameters, keystoreParameters), ex);
 		}
-	}
-
-	// configs may only contain the path relative to the keystore directory
-	private static File absoluteFile(String keystoreBasePath, String keystorePath) {
-		var result = new File(keystorePath);
-		if (result.isAbsolute()) {
-			return result;
-		}
-		return new File(keystoreBasePath, keystorePath);
 	}
 
 	public static int getDefaultPort(URI uri) {

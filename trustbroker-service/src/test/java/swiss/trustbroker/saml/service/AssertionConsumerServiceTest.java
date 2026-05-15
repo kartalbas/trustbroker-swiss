@@ -148,8 +148,8 @@ class AssertionConsumerServiceTest {
 
 	@BeforeEach
 	void setupTest() {
-		var network = new NetworkConfig();
-		doReturn(network).when(trustBrokerProperties).getNetwork();
+		doReturn(new NetworkConfig()).when(trustBrokerProperties).getNetwork();
+		doReturn(new SamlProperties()).when(trustBrokerProperties).getSaml();
 		doAnswer(invocation -> invocation.getArgument(1)).when(hrdService).adaptClaimsProviderMappings(any(), any());
 	}
 

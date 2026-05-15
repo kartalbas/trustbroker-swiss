@@ -29,6 +29,7 @@ import static swiss.trustbroker.config.TestConstants.LATEST_INVALID_DEFINITION_P
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.mock.env.MockEnvironment;
 import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
 import swiss.trustbroker.federation.xmlconfig.RelyingPartySetup;
@@ -59,7 +60,7 @@ class XmlConfigUtilTest {
 	void loadConfigFromFileValidFile(String file, String className) throws ClassNotFoundException {
 		var cls = getDtoClass(className);
 		var def = SamlTestBase.fileFromClassPath(LATEST_DEFINITION_PATH + file);
-		var result = XmlConfigUtil.loadConfigFromFile(def, cls);
+		var result = XmlConfigUtil.loadConfigFromFile(def, cls, null);
 		assertThat(result, is(not(nullValue())));
 	}
 
@@ -75,14 +76,15 @@ class XmlConfigUtilTest {
 		var cls = getDtoClass(className);
 		var def = SamlTestBase.fileFromClassPath(LATEST_INVALID_DEFINITION_PATH + file);
 		var ex = assertThrows(TechnicalException.class,
-				() -> XmlConfigUtil.loadConfigFromFile(def, cls));
+				() -> XmlConfigUtil.loadConfigFromFile(def, cls, null));
 		assertThat(ex.getInternalMessage(), startsWith("Invalid configFile"));
 	}
 
 	@Test
 	void loadInvalidEnum() {
 		var def = SamlTestBase.fileFromClassPath(LATEST_INVALID_DEFINITION_PATH + "SetupRPInvalidEnabled.xml");
-		var ex = assertThrows(TechnicalException.class, () -> XmlConfigUtil.loadConfigFromFile(def, RelyingPartySetup.class));
+		var ex = assertThrows(TechnicalException.class, () ->
+				XmlConfigUtil.loadConfigFromFile(def, RelyingPartySetup.class, null));
 		assertThat(ex.getInternalMessage(), startsWith("Invalid configFile"));
 	}
 
@@ -91,7 +93,7 @@ class XmlConfigUtilTest {
 		var file = LATEST_INVALID_DEFINITION_PATH + "SetupRPInvalidElement.xml";
 		var def = SamlTestBase.fileFromClassPath(file);
 		var ex = assertThrows(TechnicalException.class,
-				() -> XmlConfigUtil.loadConfigFromFile(def, RelyingPartySetup.class));
+				() -> XmlConfigUtil.loadConfigFromFile(def, RelyingPartySetup.class, null));
 		assertThat(ex.getInternalMessage(), containsString("SAXParseException; lineNumber:"));
 	}
 
@@ -99,10 +101,25 @@ class XmlConfigUtilTest {
 	void loadConfigFromDirectory() {
 		var file = LATEST_DEFINITION_PATH + "SetupRP.xml";
 		var def = SamlTestBase.fileFromClassPath(file);
-		var rps = XmlConfigUtil.loadConfigFromDirectory(def, RelyingPartySetup.class);
-		assertThat(rps.result().size(), is(8));
+		var rps = XmlConfigUtil.loadConfigFromDirectory(def, RelyingPartySetup.class, null);
+		assertThat(rps.result().size(), is(9));
 		assertThat(rps.skipped().size(), is(1));
 		assertThat(rps.skipped().keySet().iterator().next(), endsWith("SetupRPInvalidXml.xml"));
+	}
+
+	@Test
+	void loadParametrizedConfiguration() {
+		var file = LATEST_DEFINITION_PATH + "SetupRP_Params.xml";
+		var environment = new MockEnvironment();
+		var appId = "urn:test:MOCKRP-PARAMS";
+		environment.setProperty("spring.application.name", appId);
+		var def = SamlTestBase.fileFromClassPath(file);
+		var rps = XmlConfigUtil.loadConfigFromFile(def, RelyingPartySetup.class, environment);
+		assertThat(rps.getRelyingParties().getFirst().getApplicationName(), is(appId));
+		assertThat(rps.getRelyingParties().getFirst().getClientName(), is("client@" + appId + "/1.0"));
+		assertThat(rps.getRelyingParties().getFirst().getBillingId(), is("${invalid ${not-found}" + appId + " }"));
+		assertThat(rps.getRelyingParties().getFirst().getIdmLookup().getQueries().getFirst().getAppFilter(),
+				is("(&(prop3=${query1.prop1})(prop4=${query1.prop2})"));
 	}
 
 	private static Class<?> getDtoClass(String className) throws ClassNotFoundException {

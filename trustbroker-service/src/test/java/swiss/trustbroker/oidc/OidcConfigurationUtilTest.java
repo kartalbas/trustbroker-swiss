@@ -41,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationServerMetadataClaimNames;
 import org.springframework.security.oauth2.server.authorization.oidc.OidcProviderConfiguration;
@@ -521,4 +522,74 @@ class OidcConfigurationUtilTest {
 		return attributes;
 	}
 
+	@Test
+	void canIssueRefreshTokenTest() {
+		var client = OidcClient.builder().build();
+		var authorizationGrantTypes = AuthorizationGrantTypes.builder().build();
+
+		// null grant types
+		client.setAuthorizationGrantTypes(null);
+		assertFalse(OidcConfigurationUtil.canIssueRefreshToken(client));
+
+		// empty grant types
+		client.setAuthorizationGrantTypes(new AuthorizationGrantTypes(List.of()));
+		assertFalse(OidcConfigurationUtil.canIssueRefreshToken(client));
+
+		// only non-refresh grant type
+		authorizationGrantTypes.setGrantTypes(List.of(AuthorizationGrantType.AUTHORIZATION_CODE));
+		client.setAuthorizationGrantTypes(authorizationGrantTypes);
+		assertFalse(OidcConfigurationUtil.canIssueRefreshToken(client));
+
+		// refresh token present
+		authorizationGrantTypes.setGrantTypes(List.of(AuthorizationGrantType.REFRESH_TOKEN));
+		client.setAuthorizationGrantTypes(authorizationGrantTypes);
+		assertTrue(OidcConfigurationUtil.canIssueRefreshToken(client));
+
+		// multiple grant types including refresh
+		authorizationGrantTypes.setGrantTypes(List.of(AuthorizationGrantType.CLIENT_CREDENTIALS, AuthorizationGrantType.REFRESH_TOKEN));
+		client.setAuthorizationGrantTypes(authorizationGrantTypes);
+		assertTrue(OidcConfigurationUtil.canIssueRefreshToken(client));
+	}
+
+	@Test
+	void canIssueIdTokenTest() {
+		var client = OidcClient.builder().build();
+		var authorizationGrantTypes = AuthorizationGrantTypes.builder().build();
+		var scopes = Scopes.builder().scopeList(List.of(OidcScopes.OPENID)).build();
+
+		// null grant types
+		client.setAuthorizationGrantTypes(null);
+		client.setScopes(scopes);
+		assertFalse(OidcConfigurationUtil.canIssueIdToken(client));
+
+		// null scopes
+		client.setAuthorizationGrantTypes(new AuthorizationGrantTypes(List.of()));
+		client.setScopes(null);
+		assertFalse(OidcConfigurationUtil.canIssueIdToken(client));
+
+		// only non-AUTHORIZATION_CODE grant type
+		authorizationGrantTypes.setGrantTypes(List.of(AuthorizationGrantType.CLIENT_CREDENTIALS));
+		client.setAuthorizationGrantTypes(authorizationGrantTypes);
+		client.setScopes(scopes);
+		assertFalse(OidcConfigurationUtil.canIssueIdToken(client));
+
+		// AUTHORIZATION_CODE present but no openid scope
+		authorizationGrantTypes.setGrantTypes(List.of(AuthorizationGrantType.AUTHORIZATION_CODE));
+		client.setAuthorizationGrantTypes(authorizationGrantTypes);
+		scopes.setScopeList(List.of("email", "profile"));
+		client.setScopes(scopes);
+		assertFalse(OidcConfigurationUtil.canIssueIdToken(client));
+
+		// AUTHORIZATION_CODE + openid scope
+		scopes.setScopeList(List.of(OidcScopes.OPENID, "email"));
+		client.setScopes(scopes);
+		assertTrue(OidcConfigurationUtil.canIssueIdToken(client));
+
+		// multiple grant types including AUTHORIZATION_CODE + openid scope
+		authorizationGrantTypes.setGrantTypes(List.of(AuthorizationGrantType.REFRESH_TOKEN, AuthorizationGrantType.AUTHORIZATION_CODE));
+		client.setAuthorizationGrantTypes(authorizationGrantTypes);
+		scopes.setScopeList(List.of(OidcScopes.OPENID));
+		client.setScopes(scopes);
+		assertTrue(OidcConfigurationUtil.canIssueIdToken(client));
+	}
 }

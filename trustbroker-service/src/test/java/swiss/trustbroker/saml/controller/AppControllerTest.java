@@ -32,7 +32,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -70,6 +69,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.servlet.MockMvc;
@@ -96,7 +96,6 @@ import swiss.trustbroker.config.dto.OidcProperties;
 import swiss.trustbroker.config.dto.QualityOfAuthenticationConfig;
 import swiss.trustbroker.config.dto.RelyingPartyDefinitions;
 import swiss.trustbroker.config.dto.SamlProperties;
-import swiss.trustbroker.federation.service.FederationMetadataService;
 import swiss.trustbroker.federation.xmlconfig.ArtifactBinding;
 import swiss.trustbroker.federation.xmlconfig.ArtifactBindingMode;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
@@ -132,6 +131,7 @@ import swiss.trustbroker.util.SamlValidator;
 		AuthenticationService.class
 })
 @AutoConfigureMockMvc
+@TestPropertySource(properties="trustbroker.config.saml.enabled=true")
 class AppControllerTest {
 
 	private static final String URL_TEMPLATE = ApiSupport.SAML_API;
@@ -168,9 +168,6 @@ class AppControllerTest {
 
 	@MockitoBean
 	private ClaimsProviderService claimsProviderService;
-
-	@MockitoBean
-	private FederationMetadataService federationMetadataService;
 
 	@MockitoBean
 	private ScriptService scriptService;
@@ -1084,16 +1081,6 @@ class AppControllerTest {
 						.param(SamlIoUtil.SAML_REQUEST_NAME, encodedMessage)
 						.param(SamlIoUtil.SAML_RELAY_STATE, "relayStateId"))
 				.andExpect(status().isOk());
-	}
-
-	@Test
-	void federationMetadata() throws Exception {
-		var content = "test";
-		doReturn(content).when(federationMetadataService).getFederationMetadata(true, true);
-		this.mockMvc
-				.perform(get(ApiSupport.METADATA_URL))
-				.andExpect(status().isOk())
-				.andExpect(content().string(content));
 	}
 
 	private void handleIncomingMessagesValidRedirectLogoutRequest(boolean doubleSignature) throws Exception {

@@ -16,6 +16,7 @@
 package swiss.trustbroker.saml.dto;
 
 import java.io.Serializable;
+import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
@@ -77,6 +78,16 @@ public class UiObject implements Serializable {
 	 * HTML color code identifying the CP on small screens.
 	 */
 	private String color;
+
+	/**
+	 * Notice max age
+	 */
+	private Integer noticeMaxAgeSec;
+
+	/**
+	 * The list of ClaimsProviders name
+	 */
+	private List<String> noticeClaimsProviders;
 
 	/**
 	 * @return configured order number or a default order at the end of a common CP list (using range [100, 999].

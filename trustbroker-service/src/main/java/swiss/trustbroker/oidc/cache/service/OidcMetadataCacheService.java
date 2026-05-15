@@ -37,6 +37,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import swiss.trustbroker.common.exception.TechnicalException;
+import swiss.trustbroker.common.saml.util.CredentialReader;
 import swiss.trustbroker.common.tracing.Traced;
 import swiss.trustbroker.common.util.HttpUtil;
 import swiss.trustbroker.common.util.JsonUtil;
@@ -115,11 +116,22 @@ public class OidcMetadataCacheService {
 	 * <br/>
 	 * Fetches OIDC metadata again if the key is not present.
 	 */
-	public Optional<JWK> getKey(ClaimsParty claimsParty, String expectedKid) {
+	public Optional<JWK> getKey(ClaimsParty claimsParty, String expectedKid, OidcClient oidcClient) {
 		if (expectedKid == null) {
 			return Optional.empty();
 		}
-		var oidcClient = claimsParty.getSingleOidcClient();
+		if (oidcClient == null) {
+			oidcClient = claimsParty.getSingleOidcClient();
+		}
+
+		// Get key from cert if MetadataUrl is missing
+		var protocolEndpoints = oidcClient.getProtocolEndpoints();
+		if ((protocolEndpoints == null || protocolEndpoints.getMetadataUrl() == null) &&
+				oidcClient.getCpJwks() != null && !oidcClient.getCpJwks().isEmpty()) {
+			log.debug("Select JWK for oidcClient: {} from Client.SignerTruststore", oidcClient);
+			return CredentialReader.getJwk(oidcClient.getCpJwks());
+		}
+		// Get key from MetadataUrl
 		var cacheEntry = getCachedConfig(claimsParty, oidcClient);
 		var key = cacheEntry.getConfig().getJwkSet().getKeyByKeyId(expectedKid);
 		if (key == null) {
@@ -133,8 +145,8 @@ public class OidcMetadataCacheService {
 		return Optional.ofNullable(key);
 	}
 
-	public Function<String, Optional<JWK>> jwtKeySupplier(ClaimsParty claimsParty) {
-		return id -> getKey(claimsParty, id);
+	public Function<String, Optional<JWK>> jwtKeySupplier(ClaimsParty claimsParty, OidcClient oidcClient) {
+		return id -> getKey(claimsParty, id, oidcClient);
 	}
 
 	public OpenIdProviderConfiguration getOidcConfiguration(ClaimsParty claimsParty) {
@@ -195,7 +207,7 @@ public class OidcMetadataCacheService {
 	}
 
 	void getCounterPartyMap(CounterParty counterParty, Map<OidcClient, CounterParty> clientCertMap, boolean requiresEndpoint) {
-		if (counterParty.useOidc() && !counterParty.getOidcClients().isEmpty()) {
+		if (counterParty.isOidcEnabled(trustBrokerProperties.getOidc().isEnabled()) && !counterParty.getOidcClients().isEmpty()) {
 			for (var client : counterParty.getOidcClients()) {
 				if (client.getProtocolEndpoints() != null) {
 					clientCertMap.put(client, counterParty);
@@ -234,49 +246,70 @@ public class OidcMetadataCacheService {
 	// cache miss or missing JWK, trigger a refresh
 	public OpenIdProviderConfiguration fetchProviderMetadata(OidcClient client, Certificates certificates) {
 		var configurationUrl = getConfigurationUrl(client);
-		try {
-			var metadataUri = WebUtil.getValidatedUri(configurationUrl);
-			if (metadataUri == null) {
-				throw new TechnicalException(String.format("oidcClientId=%s has missing or invalid configurationUrl=%s",
-						client.getId(), configurationUrl));
-			}
-			var httpClient = httpClientProvider.createHttpClient(client, certificates, metadataUri);
-
-			// fetch metadata
+		var jwksUrl = getConfigurationJwksUrl(client);
+		var metadataUri = WebUtil.getValidatedUri(configurationUrl);
+		var jwksUri = WebUtil.getValidatedUri(jwksUrl);
+		if (metadataUri == null && jwksUri == null) {
+			throw new TechnicalException(String.format("oidcClientId=%s has missing or invalid configurationUrl=%s or jwksUrl=%s",
+					client.getId(), configurationUrl, jwksUrl));
+		}
+		var targetUri = metadataUri != null ? metadataUri : jwksUri;
+		try (var httpClient = httpClientProvider.createHttpClient(client, certificates, targetUri)) {
 			var start = System.currentTimeMillis();
-			var metadataResponse = HttpUtil.getHttpResponseString(httpClient, metadataUri);
-			if (metadataResponse.isEmpty()) {
-				throw new TechnicalException(String.format("oidcClientId=%s failed to fetch configurationUrl=%s",
-						client.getId(), configurationUrl));
+
+			var result = OpenIdProviderConfiguration.builder().build();
+			var jwksEndpoint = jwksUri;
+			if (metadataUri != null) {
+				// fetch metadata
+				var metadataResponse = HttpUtil.getHttpResponseString(httpClient, metadataUri);
+				if (metadataResponse.isEmpty()) {
+					throw new TechnicalException(String.format("oidcClientId=%s failed to fetch configurationUrl=%s",
+							client.getId(), configurationUrl));
+				}
+				result = parseOidcMetadata(metadataResponse.get(), client);
+				log.debug("oidcClient={} configurationUrl={} returned result={}", client.getId(), configurationUrl, result);
+				if (client.getIssuerId() != null && !client.getIssuerId().equals(result.getIssuerId())) {
+					log.info("oidcClient={} has issuerId={} but configurationUrl={} returned issuerId={}",
+							client.getId(), client.getIssuerId(), configurationUrl, result.getIssuerId());
+				}
+				jwksEndpoint = result.getJwkEndpoint();
 			}
-			var result = parseOidcMetadata(metadataResponse.get(), client);
-			log.debug("oidcClient={} configurationUrl={} returned result={}", client.getId(), configurationUrl, result);
-			if (client.getIssuerId() != null && !client.getIssuerId().equals(result.getIssuerId())) {
-				log.info("oidcClient={} has issuerId={} but configurationUrl={} returned issuerId={}",
-						client.getId(), client.getIssuerId(), configurationUrl, result.getIssuerId());
+
+			if (jwksEndpoint != null) {
+				var jwksResponse = HttpUtil.getHttpResponseStream(httpClient, jwksEndpoint);
+				if (jwksResponse.isEmpty()) {
+					throw new TechnicalException(String.format("oidcClientId=%s failed to fetch jwks from endpoint=%s",
+							client.getId(), jwksEndpoint));
+				}
+				var jwkSet = JWKSet.load(jwksResponse.get());
+				result.setJwkSet(jwkSet);
 			}
-			var jwksResponse = HttpUtil.getHttpResponseStream(httpClient, result.getJwkEndpoint());
-			if (jwksResponse.isEmpty()) {
-				throw new TechnicalException(String.format("oidcClientId=%s failed to fetch configurationUrl=%s",
-						client.getId(), configurationUrl));
-			}
-			var jwkSet = JWKSet.load(jwksResponse.get());
-			result.setJwkSet(jwkSet);
 
 			var clientSecret = clientSecretProvider.resolveClientSecret(client);
 			result.setClientSecret(clientSecret);
 
 			// done
 			var dTms = System.currentTimeMillis() - start;
-			log.info("Loaded oidcClientId={} from configurationUrl={} in dTms={} : result={}",
-					client.getId(), configurationUrl, dTms, result);
-			validateMetadata(client, result);
+			log.info("Loaded oidcClientId={} from configurationUrl={} or jwkUrl={} in dTms={} : result={}",
+					client.getId(), configurationUrl, jwksUrl, dTms, result);
+			if (metadataUri != null) {
+				validateMetadata(client, result);
+			}
+
 			return result;
 		}
 		catch (IOException | ParseException ex) {
 			throw new TechnicalException(String.format("oidcClientId=%s failed to fetch configurationUrl=%s message=%s",
 					client.getId(), configurationUrl, ex.getMessage()), ex);
 		}
+	}
+
+	private String getConfigurationJwksUrl(OidcClient client) {
+		var protocolEndpoints = client.getProtocolEndpoints();
+		if(protocolEndpoints == null || protocolEndpoints.getJwkSetUrl() == null) {
+			return null;
+		}
+		return protocolEndpoints.getJwkSetUrl();
 	}
 
 	private static OpenIdProviderConfiguration parseOidcMetadata(String jsonString, OidcClient oidcClient) {
@@ -325,12 +358,16 @@ public class OidcMetadataCacheService {
 			throw new TechnicalException(String.format("OIDC client=%s metadata did not return a %s",
 					client.getId(), METADATA_TOKEN_ENDPOINT));
 		}
-		if (metadata.getUserinfoEndpoint() == null && client.useClaimsFromSource(OidcClaimsSource.USERINFO)) {
+		if (metadata.getUserinfoEndpoint() == null && client.useClaimsFromSourceThat(OidcClaimsSource::isClaimsFromUserinfo)) {
 			throw new TechnicalException(String.format("OIDC client=%s metadata did not return a %s for claimsFromUserinfo=true",
 					client.getId(), METADATA_USERINFO_ENDPOINT));
 		}
 		if (metadata.getJwkEndpoint() == null) {
 			throw new TechnicalException(String.format("OIDC client=%s metadata did not return a %s",
+					client.getId(), METADATA_JWKS_URI));
+		}
+		if (metadata.getJwkSet() == null) {
+			throw new TechnicalException(String.format("OIDC client=%s metadata %s did not return a JWK set",
 					client.getId(), METADATA_JWKS_URI));
 		}
 		var authenticationMethods = metadata.getAuthenticationMethods() != null ?
@@ -347,11 +384,14 @@ public class OidcMetadataCacheService {
 
 	private static URI getUri(Map<String, Object> metadataMap, String key, OidcClient client) {
 		var value = JsonUtil.getField(metadataMap, key, String.class);
+		if (value == null) {
+			return null;
+		}
 		var uri = WebUtil.getValidatedUri(value);
 		if (uri == null) {
 			var configurationUrl = getConfigurationUrl(client);
 			throw new TechnicalException(String.format(
-					"oidcClientId=%s configurationUrl=%s has missing or invalid %s=%s",
+					"oidcClientId=%s configurationUrl=%s has invalid %s=%s",
 					client.getId(), configurationUrl, key, value));
 		}
 		return uri;

@@ -28,7 +28,6 @@ import org.opensaml.core.xml.util.XMLObjectSupport;
 import org.opensaml.saml.saml2.core.Assertion;
 import org.opensaml.saml.saml2.core.NameID;
 import org.opensaml.saml.saml2.core.Subject;
-import org.opensaml.soap.wsaddressing.EndpointReference;
 import org.opensaml.soap.wsfed.Address;
 import org.opensaml.soap.wsfed.EndPointReference;
 import org.opensaml.soap.wspolicy.AppliesTo;
@@ -201,6 +200,8 @@ public class WsTrustUtil {
 		return keyType.getURI();
 	}
 
+	// The structure is RequestSecurityToken > AppliesTo > EndpointReference > Address
+	// but the element specifications/namespaces may differ, see also CompatEndPointReferenceUnmarshaller
 	public static String getAddressFromRequest(RequestSecurityToken requestSecurityToken) {
 		Objects.requireNonNull(requestSecurityToken);
 		Objects.requireNonNull(requestSecurityToken.getDOM());
@@ -323,28 +324,6 @@ public class WsTrustUtil {
 			contextClasses = List.of(authnContextClassRef);
 		}
 		return contextClasses;
-	}
-
-	// rpIssuerId for ISSUE - see also CompatEndPointReferenceUnmarshaller
-	public static String getEndpointReferenceAddress(RequestSecurityToken requestSecurityToken) {
-		for (var child : requestSecurityToken.getUnknownXMLObjects()) {
-			if (child instanceof AppliesTo appliesTo) {
-				for (var appliesChild : appliesTo.getUnknownXMLObjects()) {
-					if (appliesChild instanceof EndPointReference endpointReference && endpointReference.getAddress() != null) {
-						var address = endpointReference.getAddress().getValue();
-						log.debug("wsfed EndPointReference address=={}", address);
-						return address;
-					}
-					else if (appliesChild instanceof EndpointReference endpointReference && endpointReference.getAddress() != null) {
-						var address = endpointReference.getAddress().getURI();
-						log.debug("wsadressing EndpointReference address={}", address);
-						return address;
-					}
-				}
-			}
-		}
-		log.warn("Missing AppliesTo with EndPointReference.Address in RST");
-		return null;
 	}
 
 	// cpIssuerId for ISSUE

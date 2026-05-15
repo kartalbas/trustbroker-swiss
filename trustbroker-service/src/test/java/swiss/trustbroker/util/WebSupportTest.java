@@ -42,6 +42,7 @@ import org.springframework.web.servlet.view.UrlBasedViewResolver;
 import swiss.trustbroker.common.config.RegexNameValue;
 import swiss.trustbroker.common.exception.RequestDeniedException;
 import swiss.trustbroker.common.tracing.TraceSupport;
+import swiss.trustbroker.common.util.WebUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
 import swiss.trustbroker.config.dto.ArtifactResolution;
 import swiss.trustbroker.config.dto.NetworkConfig;
@@ -313,6 +314,23 @@ class WebSupportTest {
 		var properties = givenProperties();
 		var result = WebSupport.getOwnPerimeterPaths(properties);
 		assertThat(result, containsInAnyOrder(SAML_PATH, OIDC_PATH, OIDC_IFRAME_PATH));
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {
+			"null,false",
+			"/relative,false",
+			SAML_URL + ",true",
+			SAML_URL + "/test,true",
+			OIDC_URL + ",true",
+			OIDC_URL + "/test,true",
+			OIDC_LOGOUT_URL + ",true",
+			OIDC_LOGOUT_URL + "/test,true"
+	}, nullValues = "null")
+	void getOwnOrigins(String checkUrl, boolean expected) {
+		var checkUri = WebUtil.getValidatedUri(checkUrl);
+		var properties = givenProperties();
+		assertThat(WebSupport.isOwnOrigin(properties, checkUri), is(expected));
 	}
 
 	@ParameterizedTest

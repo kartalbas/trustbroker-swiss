@@ -14,7 +14,7 @@
 -->
 <div class="profileContent">
 	<div class="title-container">
-		<h2 id="profileHeader">{{ "trustbroker.profile.title" | translate }}</h2>
+		<h1 id="profileHeader">{{ "trustbroker.profile.title" | translate }}</h1>
 		<div>
 			<div id="selectionText">
 				@if (profileResponse && profileResponse.application) {
@@ -44,6 +44,13 @@
 									<li>{{ "trustbroker.profile.additional-applications" | translate: { count: applications.length - APPLICATIONS_PER_PROFILE } }}</li>
 								}
 							</ul>
+						}
+						@if (profile.translations) {
+							@for (entry of profile.translations | keyvalue; track entry.key) {
+								@if (entry.value) {
+									<span class="translation">{{ getTranslation(entry.key, entry.value) }}</span>
+								}
+							}
 						}
 						@if (profile.displayClaims) {
 							@for (entry of profile.displayClaims | keyvalue: compareOriginalOrder; track entry.key) {

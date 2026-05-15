@@ -37,6 +37,8 @@ public class ProfileSelectionData {
 
 	private final String oidcClientId;
 
+	private final boolean ignoreEmptyProfiles;
+
 	public boolean isSortRoleEnabled() {
 		return 	profileSelectionProperties != null && profileSelectionProperties.isSortRoleEnabled();
 	}

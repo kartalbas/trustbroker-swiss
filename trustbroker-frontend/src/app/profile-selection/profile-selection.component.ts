@@ -17,6 +17,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit } from '@angular/core';
 import { ActivatedRoute, Params, Router } from '@angular/router';
 import { KeyValue } from '@angular/common';
+import { TranslateService } from '@ngx-translate/core';
 
 import { Profile } from '../model/Profile';
 import { ProfileService } from '../services/profile.service';
@@ -39,6 +40,7 @@ export class ProfileSelectionComponent implements OnInit {
 	constructor(
 		private readonly profileService: ProfileService,
 		private readonly validation: ValidationService,
+		private readonly translateService: TranslateService,
 		private readonly route: ActivatedRoute,
 		private readonly router: Router
 	) {}
@@ -93,6 +95,12 @@ export class ProfileSelectionComponent implements OnInit {
 				}
 			}
 		});
+	}
+
+	getTranslation(key: string, value: Record<string, string[]>) {
+		const currentLang = this.translateService.getCurrentLang();
+		const attributeName = key + currentLang.toLowerCase();
+		return value[attributeName] ?? [key];
 	}
 
 	private createProfileRequest(stateId: string, profileId: string): ProfileRequest {

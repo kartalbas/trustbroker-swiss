@@ -15,6 +15,7 @@
 
 package swiss.trustbroker.homerealmdiscovery.util;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -39,6 +40,7 @@ import jakarta.xml.bind.JAXBException;
 import jakarta.xml.bind.Unmarshaller;
 import jakarta.xml.bind.util.ValidationEventCollector;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXNotRecognizedException;
 import org.xml.sax.SAXNotSupportedException;
@@ -77,7 +79,7 @@ public class XmlConfigUtil {
 	);
 
 	// https://javaee.github.io/jaxb-v2/doc/user-guide/ch06.html
-	// The JAXB Specification currently does not address the thread safety of any of the runtime classes.
+	// The JAXB Specification currently does not address the thread safety of the runtime classes.
 	// In the case of the Oracle JAXB RI, the JAXBContext class is thread safe, but the Marshaller,
 	// Unmarshaller, and Validator classes are not thread safe.
 	// https://docs.oracle.com/javase/8/docs/api/javax/xml/validation/Schema.html
@@ -93,7 +95,8 @@ public class XmlConfigUtil {
 	}
 
 	// load multiple files
-	public static <T> LoadResult<T> loadConfigFromDirectory(File mappingFile, Class<T> entryType) {
+	public static <T> LoadResult<T> loadConfigFromDirectory(File mappingFile, Class<T> entryType,
+															ConfigurableEnvironment environment) {
 		var definitionDirectory = mappingFile.getParentFile();
 		if (definitionDirectory == null || !definitionDirectory.isDirectory()) {
 			log.error("Cannot iterate over directory {}", definitionDirectory);
@@ -106,7 +109,7 @@ public class XmlConfigUtil {
 			var entries = stream
 					.filter(Files::isRegularFile)
 					.filter(file -> isMatchingFile(file, filePrefix))
-					.map(file -> loadConfigFromFile(file, definitionPath, entryType, skipped))
+					.map(file -> loadConfigFromFile(file, definitionPath, entryType, skipped, environment))
 					.filter(Objects::nonNull) // ignore skipped entries
 					.toList();
 			return new LoadResult<>(entries, skipped);
@@ -128,10 +131,10 @@ public class XmlConfigUtil {
 	}
 
 	private static <T> T loadConfigFromFile(Path configPath, Path definitionPath, Class<T> entryType,
-			Map<String, TechnicalException> skipped) {
+			Map<String, TechnicalException> skipped, ConfigurableEnvironment environment) {
 		var configFile = configPath.toFile();
 		try {
-			var result = loadConfigFromFile(configFile, entryType);
+			var result = loadConfigFromFile(configFile, entryType, environment);
 			if (result instanceof PathReference holder) {
 				var subPath = DirectoryUtil.relativePath(configPath.getParent(), definitionPath, false);
 				log.debug("Config file={} of type={} is in subPath={}", configPath, result.getClass().getSimpleName(), subPath);
@@ -209,14 +212,45 @@ public class XmlConfigUtil {
 		}
 	}
 
+	// uncool workaround for LDAP queries containing placeholders representing attribute references
+	private static boolean skipXmlElement(String key, String content, int end) {
+		var xmlEndTag = content.indexOf("</", end);
+		if (xmlEndTag >= 0 && content.substring(xmlEndTag).startsWith("</AppFilter>", xmlEndTag)) {
+			log.warn("Skipping property={} substitution in <AppFilter> element", key);
+			return true;
+		}
+		return false;
+	}
+
+	// read file with ${} substitutions from env (ENV variables, JVM and application properties)
+	static InputStream handlePlaceholders(InputStream configStream, ConfigurableEnvironment environment) throws IOException {
+		var content = new String(configStream.readAllBytes());
+		var start = content.indexOf("${");
+		while (start >= 0) {
+			var end = content.indexOf("}", start + 2);
+			if (end < 0) {
+				break;
+			}
+			var key = content.substring(start + 2, end);
+			var value = environment != null ? environment.getProperty(key) : null;
+			if (value != null && !skipXmlElement(key, content, end)) {
+				content = content.substring(0, start) + value + content.substring(end + 1);
+			}
+			start = content.indexOf("${", start + 2);
+		}
+		return new ByteArrayInputStream(content.getBytes());
+	}
+
 	@SuppressWarnings("unchecked")
-	public static <T> T getConfigData(File configFile, Class<T> configType) {
-		try (var file = new FileInputStream(configFile)) {
+	public static <T> T getConfigData(File configFile, Class<T> configType, ConfigurableEnvironment environment) {
+		try (var configFromFile = new FileInputStream(configFile)) {
+			var configBytes =  configFromFile.readAllBytes();
+			var configStream = handlePlaceholders(new ByteArrayInputStream(configBytes), environment);
 			var jaxbUnmarshaller = createUnmarshaller(configType);
 			// collect validation events of all severities (fails only on FATAL_ERROR):
 			var vec = new ValidationEventCollector();
 			jaxbUnmarshaller.setEventHandler(vec);
-			T result = (T) jaxbUnmarshaller.unmarshal(file);
+			T result = (T) jaxbUnmarshaller.unmarshal(configStream);
 			if (vec.hasEvents()) {
 				throw new TechnicalException(String.format("Invalid configFile='%s' loading configType='%s': %s",
 						configFile.getAbsolutePath(), configType.getSimpleName(), CollectionUtil.toLogString(vec.getEvents())));
@@ -231,9 +265,9 @@ public class XmlConfigUtil {
 		}
 	}
 
-	// load from a single file containing 1..n definitions
-	public static <T> T loadConfigFromFile(File configFile, Class<T> entryType) {
-		var configData = getConfigData(configFile, entryType);
+	// load from a single file containing N definitions including ${property} substitution
+	public static <T> T loadConfigFromFile(File configFile, Class<T> entryType, ConfigurableEnvironment environment) {
+		var configData = getConfigData(configFile, entryType, environment);
 		log.debug("Loaded definition type {} from: {}", entryType.getSimpleName(), configFile.getAbsolutePath());
 		return configData;
 	}

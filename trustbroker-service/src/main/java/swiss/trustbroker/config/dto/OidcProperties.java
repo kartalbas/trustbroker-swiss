@@ -35,6 +35,14 @@ import swiss.trustbroker.common.config.RegexNameValue;
 public class OidcProperties {
 
 	/**
+	 * OIDC protocol enabled.
+	 * <br/>
+	 * Default: true
+	 * @since 1.14.0
+	 */
+	private boolean enabled = true;
+
+	/**
 	 * XTB OIDC issuer ID.
 	 */
 	private String issuer;
@@ -350,13 +358,6 @@ public class OidcProperties {
 	private List<String> dropDuplicatedAttributeFromOriginalIssuer;
 
 	/**
-	 * Token in form encoded request body parameter allowed.
-	 * <br/>
-	 * Default: true
-	 */
-	private boolean tokenInRequestBodyEnabled = true;
-
-	/**
 	 * Default keystore for direct connections to OIDC CPs.
 	 *
 	 * @since 1.10.0
@@ -394,4 +395,13 @@ public class OidcProperties {
 	 * @since 1.13.0
 	 */
 	private boolean externalTokenExchangeEnabled;
+
+	/**
+	 * Allow saml2 token exchange.
+	 * <br/>
+	 * Default: false
+	 *
+	 * @since 1.14.0
+	 */
+	private boolean saml2TokenExchangeEnabled;
 }

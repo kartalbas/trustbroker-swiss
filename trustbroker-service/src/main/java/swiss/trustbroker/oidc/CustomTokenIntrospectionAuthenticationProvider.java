@@ -29,6 +29,7 @@ import java.net.URL;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,10 +46,18 @@ import org.springframework.security.oauth2.core.converter.ClaimConversionService
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenIntrospection;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenIntrospectionAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat;
+import org.springframework.security.saml2.provider.service.authentication.DefaultSaml2AuthenticatedPrincipal;
+import org.springframework.security.saml2.provider.service.authentication.Saml2Authentication;
 import org.springframework.util.CollectionUtils;
+import swiss.trustbroker.common.util.OidcUtil;
+import swiss.trustbroker.config.TrustBrokerProperties;
+import swiss.trustbroker.config.dto.RelyingPartyDefinitions;
+import swiss.trustbroker.federation.xmlconfig.OidcClient;
 import swiss.trustbroker.oidc.session.OidcSessionSupport;
 
 /**
@@ -81,6 +90,10 @@ public class CustomTokenIntrospectionAuthenticationProvider implements Authentic
 	private final ClientConfigInMemoryRepository registeredClientRepository;
 
 	private final OAuth2AuthorizationService authorizationService;
+
+	private final RelyingPartyDefinitions relyingPartyDefinitions;
+
+	private final TrustBrokerProperties trustBrokerProperties;
 
 	@Override
 	public Authentication authenticate(Authentication authentication) throws AuthenticationException {
@@ -117,6 +130,17 @@ public class CustomTokenIntrospectionAuthenticationProvider implements Authentic
 			log.warn("OIDC clientId={} did not send a token to introspect",	OidcSessionSupport.getOidcClientId());
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_REQUEST);
 		}
+
+		var authorizationClient = getAuthorizedClient(authorization.getRegisteredClientId(), authorizedToken);
+		var relyingParty = relyingPartyDefinitions.getRelyingPartyByOidcClientId(authorizationClient, null, trustBrokerProperties, false);
+		var rpClients = relyingParty.getOidcClients().stream().map(OidcClient::getId).collect(Collectors.toSet());
+		var clientPrincipalName = getAuthenticationClientId(clientPrincipal);
+		if (authorizationClient == null || !rpClients.contains(clientPrincipalName)) {
+			log.error("Authentication Client={} is not matching the Authorization client={}", clientPrincipalName, authorizationClient);
+			return new OAuth2TokenIntrospectionAuthenticationToken(tokenIntrospectionAuthentication.getToken(),
+					clientPrincipal, OAuth2TokenIntrospection.builder().build());
+		}
+
 		if (!authorizedToken.isActive()) {
 			log.info("OAuth2Authorization is active={} invalidated={}  beforeUse={} expired={} expiresAt={} tokenClaims='{}'",
 					authorizedToken.isActive(), authorizedToken.isInvalidated(),
@@ -127,20 +151,44 @@ public class CustomTokenIntrospectionAuthenticationProvider implements Authentic
 		}
 
 		// active=true
-		RegisteredClient authorizedClient = this.registeredClientRepository.findByClientId(authorization.getRegisteredClientId());
+		RegisteredClient authorizedClient = this.registeredClientRepository.findByClientId(authorizationClient);
 		if (authorizedClient == null) {
-			log.warn("Registered clientId={} missing", authorization.getRegisteredClientId());
+			log.warn("Registered clientId={} missing", authorizationClient);
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_CLIENT);
 		}
 		OAuth2TokenIntrospection tokenClaims = withActiveTokenClaims(authorizedToken, authorizedClient);
 
 		if (log.isDebugEnabled()) {
-			log.debug("Returning OAuth2TokenIntrospectionAuthenticationToken for userPrincipal=\"{}\", tokenClaims={}",
-					clientPrincipal.getName(), tokenClaims.getClaims());
+			log.debug("Returning OAuth2TokenIntrospectionAuthenticationToken for clientPrincipal=\"{}\", tokenClaims={}",
+					clientPrincipalName, tokenClaims.getClaims());
 		}
 
 		return new OAuth2TokenIntrospectionAuthenticationToken(authorizedToken.getToken().getTokenValue(),
 				clientPrincipal, tokenClaims);
+	}
+
+	private String getAuthorizedClient(String registeredClientId, OAuth2Authorization.Token<OAuth2Token> authorizedToken) {
+		var tokenFormat = authorizedToken.getMetadata(OAuth2TokenFormat.class.getName());
+		boolean isOpaque = OAuth2TokenFormat.REFERENCE.getValue().equals(tokenFormat);
+		if (registeredClientId == null || isOpaque) {
+			return registeredClientId;
+		}
+
+		var clientIdFromToken = OidcUtil.getClientIdFromTokenClaims(authorizedToken.getClaims());
+		return clientIdFromToken == null ? registeredClientId : clientIdFromToken;
+	}
+
+	private String getAuthenticationClientId(Authentication clientPrincipal) {
+		if (clientPrincipal instanceof Saml2Authentication saml2Authentication &&
+				saml2Authentication.getPrincipal() instanceof DefaultSaml2AuthenticatedPrincipal defaultSaml2AuthenticatedPrincipal) {
+			return defaultSaml2AuthenticatedPrincipal.getRelyingPartyRegistrationId();
+		}
+		if (clientPrincipal instanceof OAuth2ClientAuthenticationToken clientAuthenticationToken) {
+			var registeredClient = clientAuthenticationToken.getRegisteredClient();
+			return registeredClient != null ? registeredClient.getClientId() : null;
+		}
+		log.error("Could not extract Authentication client id from Principal={}", clientPrincipal);
+		return null;
 	}
 
 	@Override

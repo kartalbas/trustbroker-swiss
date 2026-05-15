@@ -27,14 +27,17 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.util.CollectionUtils;
 import swiss.trustbroker.api.idm.dto.IdmRequest;
 import swiss.trustbroker.api.idm.service.IdmQueryService;
 import swiss.trustbroker.common.exception.TechnicalException;
 import swiss.trustbroker.common.util.DirectoryUtil;
 import swiss.trustbroker.config.TrustBrokerProperties;
+import swiss.trustbroker.config.dto.NetworkConfig;
 import swiss.trustbroker.federation.xmlconfig.AcWhitelist;
 import swiss.trustbroker.federation.xmlconfig.ArtifactBinding;
 import swiss.trustbroker.federation.xmlconfig.AttributesSelection;
@@ -49,6 +52,7 @@ import swiss.trustbroker.federation.xmlconfig.ConstAttributes;
 import swiss.trustbroker.federation.xmlconfig.CounterParty;
 import swiss.trustbroker.federation.xmlconfig.Definition;
 import swiss.trustbroker.federation.xmlconfig.Encryption;
+import swiss.trustbroker.federation.xmlconfig.FeatureEnum;
 import swiss.trustbroker.federation.xmlconfig.Flow;
 import swiss.trustbroker.federation.xmlconfig.FlowPolicies;
 import swiss.trustbroker.federation.xmlconfig.IdmLookup;
@@ -66,9 +70,11 @@ import swiss.trustbroker.federation.xmlconfig.SecurityPolicies;
 import swiss.trustbroker.federation.xmlconfig.Signature;
 import swiss.trustbroker.federation.xmlconfig.Sso;
 import swiss.trustbroker.federation.xmlconfig.SubjectNameMappings;
+import swiss.trustbroker.federation.xmlconfig.WsTrust;
 import swiss.trustbroker.script.service.ScriptService;
 import swiss.trustbroker.util.CertificateUtil;
 import swiss.trustbroker.util.PropertyUtil;
+import swiss.trustbroker.util.WebSupport;
 
 @Slf4j
 public class RelyingPartySetupUtil {
@@ -81,14 +87,15 @@ public class RelyingPartySetupUtil {
 	public static void loadRelyingParty(Collection<RelyingParty> relyingParties, String definitionPath, String pullConfigPath,
 										TrustBrokerProperties trustBrokerProperties, List<IdmQueryService> idmQueryServices,
 										ScriptService scriptService, ClaimsProviderSetup claimsProviderSetup,
-										ClaimsProviderDefinitions claimsProviderDefinitions) {
+										ClaimsProviderDefinitions claimsProviderDefinitions,
+										ConfigurableEnvironment environment) {
 		if (relyingParties == null) {
 			throw new TechnicalException("RelyingParties are missing or could not be loaded");
 		}
 		for (RelyingParty relyingParty : relyingParties) {
 			try {
 				loadRelyingParty(definitionPath, pullConfigPath, relyingParty, trustBrokerProperties, idmQueryServices,
-						scriptService, claimsProviderSetup, claimsProviderDefinitions);
+						scriptService, claimsProviderSetup, claimsProviderDefinitions, environment);
 			}
 			catch (TechnicalException ex) {
 				log.error("Could not load file: {}", ex.getInternalMessage());
@@ -104,7 +111,8 @@ public class RelyingPartySetupUtil {
 										 List<IdmQueryService> idmQueryServices,
 										 ScriptService scriptService,
 										 ClaimsProviderSetup claimsProviderSetup,
-										 ClaimsProviderDefinitions defaultClaimsProviderDefinitions) {
+										 ClaimsProviderDefinitions defaultClaimsProviderDefinitions,
+										 ConfigurableEnvironment environment) {
 		// load referenced definition
 		var claimsMappingDef = getRpClaimsMappingDef(relyingParty.getClaimsProviderMappings());
 		if (claimsMappingDef != null) {
@@ -121,7 +129,7 @@ public class RelyingPartySetupUtil {
 		if (!StringUtils.isBlank(baseRule)) {
 			var rulePath = resolvePath(definitionPath, pullConfigPath, baseRule, relyingParty.getSubPath(), trustBrokerProperties);
 			var basePath = Path.of(rulePath, baseRule).toString();
-			var baseParty = ClaimsProviderUtil.loadRelyingParty(basePath);
+			var baseParty = ClaimsProviderUtil.loadRelyingParty(basePath, environment);
 			mergeRelyingParty(relyingParty, baseParty, idmQueryServices, claimsProviderSetup);
 			applyGlobalCertificates(relyingParty, trustBrokerProperties);
 			validateScripts(relyingParty, scriptService);
@@ -316,6 +324,9 @@ public class RelyingPartySetupUtil {
 		// Saml
 		mergeSaml(relyingParty, baseRelyingParty.getSaml());
 
+		// WS-Trust
+		mergeWsTrust(relyingParty, baseRelyingParty.getWsTrust());
+
 		// FlowPolicies
 		mergeFlowPolicies(relyingParty, baseRelyingParty.getFlowPolicies());
 
@@ -415,6 +426,20 @@ public class RelyingPartySetupUtil {
 		mergeSignature(relyingParty, baseSaml.getSignature());
 		mergeProtocolEndpoints(relyingParty, baseSaml.getProtocolEndpoints());
 		mergeArtifactBinding(relyingParty, baseSaml.getArtifactBinding());
+		// remaining attributes
+		PropertyUtil.copyMissingAttributes(relyingParty.initializedSaml(), baseSaml);
+	}
+
+	private static void mergeWsTrust(RelyingParty relyingParty, WsTrust baseWsTrust) {
+		if (baseWsTrust == null) {
+			return;
+		}
+		if (relyingParty.getWsTrust() == null) {
+			relyingParty.setWsTrust(baseWsTrust);
+		}
+		else {
+			PropertyUtil.copyMissingAttributes(relyingParty.getWsTrust(), baseWsTrust);
+		}
 	}
 
 	private static void mergeFlowPolicies(RelyingParty relyingParty, FlowPolicies baseFlowPolicies) {
@@ -916,35 +941,33 @@ public class RelyingPartySetupUtil {
 		else if (attributes == null) {
 			return baseAttributes;
 		}
-		List<Definition> toRemoveFromBase = new ArrayList<>();
+		List<Definition> mergedAttributes = new ArrayList<>();
 		if (baseAttributes != null && !baseAttributes.isEmpty()) {
-			attributes.forEach(attribute -> setBaseToRemove(baseAttributes, attribute, toRemoveFromBase));
-			attributes.addAll(filterBaseAttributes(baseAttributes, toRemoveFromBase));
+			attributes.forEach(attribute -> setBaseToRemove(baseAttributes, attribute, mergedAttributes));
+			attributes.addAll(filterBaseAttributes(baseAttributes, mergedAttributes));
 			return attributes;
 		}
 		return attributes;
 	}
 
-	private static List<Definition> filterBaseAttributes(List<Definition> baseAttributes, List<Definition> toRemoveFromBase) {
-		if (!toRemoveFromBase.isEmpty()) {
+	private static List<Definition> filterBaseAttributes(List<Definition> baseAttributes, List<Definition> mergedAttributes) {
+		if (!mergedAttributes.isEmpty()) {
 			baseAttributes = baseAttributes.stream()
-					.filter(attribute -> definitionInList(attribute, toRemoveFromBase).isEmpty())
+					.filter(attribute -> definitionInList(attribute, mergedAttributes).isEmpty())
 					.toList();
 		}
 		return baseAttributes;
 	}
 
-	static void setBaseToRemove(List<Definition> baseAttributes, Definition attribute, List<Definition> toRemoveFromBase) {
+	static void setBaseToRemove(List<Definition> baseAttributes, Definition attribute, List<Definition> mergedAttributes) {
 		Optional<Definition> baseAttr = definitionInList(attribute, baseAttributes);
-
 		if (baseAttr.isPresent()) {
-			PropertyUtil.copyAttributeIfBlank(Definition::setOidcNames, Definition::getOidcNames, attribute, baseAttr.get());
-			PropertyUtil.copyAttributeIfBlank(Definition::setMappers, Definition::getMappers, attribute, baseAttr.get());
-			PropertyUtil.copyAttributeIfBlank(Definition::setScope, Definition::getScope, attribute, baseAttr.get());
-			toRemoveFromBase.add(attribute);
+			PropertyUtil.copyMissingAttributes(attribute, baseAttr.get());
+			mergedAttributes.add(attribute);
 		}
 	}
 
+	// get correct definition without considering source as source needs to be changeable
 	static Optional<Definition> definitionInList(Definition attributeDefinition, List<Definition> definitionList) {
 		return definitionList.stream()
 				.filter(attr -> attr.equalsByNameAndNamespace(attributeDefinition))
@@ -967,4 +990,24 @@ public class RelyingPartySetupUtil {
 		return null;
 	}
 
+	public static boolean isPartyDisabled(CounterParty counterParty, HttpServletRequest httpRequest, NetworkConfig networkConfig) {
+		if (counterParty == null) {
+			return true;
+		}
+		if (counterParty.getEnabled() == FeatureEnum.TRUE) {
+			return false;
+		}
+		if (counterParty.getEnabled() == FeatureEnum.INVALID) {
+			log.warn("{} issuerId={} is invalid", counterParty.getClass().getName(), counterParty.getId());
+			return true;
+		}
+		if (httpRequest == null) {
+			httpRequest = WebSupport.getWebRequest();
+		}
+		if (WebSupport.canaryModeEnabled(httpRequest, networkConfig)) {
+			log.info("Disabled {} issuerId={} allowed in canary mode", counterParty.getClass().getName(), counterParty.getId());
+			return false;
+		}
+		return true;
+	}
 }

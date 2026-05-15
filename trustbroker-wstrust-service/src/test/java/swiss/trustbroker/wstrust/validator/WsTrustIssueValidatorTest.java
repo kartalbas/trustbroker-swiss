@@ -20,6 +20,8 @@ import static org.hamcrest.Matchers.is;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.util.Collections;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +42,7 @@ import swiss.trustbroker.config.dto.WsTrustConfig;
 import swiss.trustbroker.federation.xmlconfig.ClaimsParty;
 import swiss.trustbroker.federation.xmlconfig.RelyingParty;
 import swiss.trustbroker.federation.xmlconfig.SecurityPolicies;
+import swiss.trustbroker.federation.xmlconfig.WsTrustBinding;
 import swiss.trustbroker.homerealmdiscovery.service.RelyingPartySetupService;
 import swiss.trustbroker.script.service.ScriptService;
 import swiss.trustbroker.wstrust.util.WsTrustTestUtil;
@@ -82,16 +85,23 @@ class WsTrustIssueValidatorTest {
 
 	@ParameterizedTest
 	@MethodSource
-	void applies(RequestType requestType, boolean enabled, boolean expectedResult) {
-		wsTrustConfig.setIssueEnabled(enabled);
+	void applies(RequestType requestType, boolean protocolEnabled, boolean bindingEnabled, List<String> bindings,
+			boolean expectedResult) {
+		wsTrustConfig.setEnabled(protocolEnabled);
+		wsTrustConfig.setIssueEnabled(bindingEnabled);
+		wsTrustConfig.setBindings(bindings);
 		assertThat(wsTrustIssueValidator.applies(requestType), is(expectedResult));
 	}
 
 	static Object[][] applies() {
 		return new Object[][] {
-				{ WsTrustUtil.createRequestType(RequestType.ISSUE), true, true },
-				{ WsTrustUtil.createRequestType(RequestType.ISSUE), false, false },
-				{ WsTrustUtil.createRequestType(RequestType.RENEW), true, false }
+				{ WsTrustUtil.createRequestType(RequestType.ISSUE), true, true, null, true },
+				{ WsTrustUtil.createRequestType(RequestType.ISSUE), true, false, List.of(WsTrustBinding.RENEW.name()), false },
+				{ WsTrustUtil.createRequestType(RequestType.ISSUE), true, false,
+						List.of(WsTrustBinding.RENEW.name(), WsTrustBinding.ISSUE.name()), true },
+				{ WsTrustUtil.createRequestType(RequestType.ISSUE), false, true, List.of(WsTrustBinding.ISSUE.name()), false },
+				{ WsTrustUtil.createRequestType(RequestType.RENEW), true, true, Collections.emptyList(), false },
+				{ WsTrustUtil.createRequestType(RequestType.RENEW), true, false, List.of(WsTrustBinding.ISSUE.getAction()), false }
 		};
 	}
 
@@ -195,4 +205,5 @@ class WsTrustIssueValidatorTest {
 		var result = wsTrustIssueValidator.validate(rst, header);
 		assertThat(result.getValidatedAssertion(), is(assertion));
 	}
+
 }

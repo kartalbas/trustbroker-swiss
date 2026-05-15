@@ -18,9 +18,11 @@ package swiss.trustbroker.federation.xmlconfig;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
+import jakarta.xml.bind.annotation.XmlAttribute;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import lombok.AllArgsConstructor;
@@ -42,6 +44,24 @@ import lombok.NoArgsConstructor;
 public class OidcClaimsSources implements Serializable {
 
 	/**
+	 * Allow overriding claims by sources in the given order.
+	 * <br/>
+	 * Default: The sources' default.
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "allowClaimsOverride")
+	private Boolean allowClaimsOverride;
+
+	/**
+	 * Allow overriding subject by sources in the given order.
+	 * <br/>
+	 * Default: The sources' default.
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "allowSubjectOverride")
+	private Boolean allowSubjectOverride;
+
+	/**
 	 * List of claims sources.<br/>
 	 * Claims from sources are combined in the given order.
 	 *
@@ -50,4 +70,12 @@ public class OidcClaimsSources implements Serializable {
 	@XmlElement(name = "ClaimsSource")
 	@Builder.Default
 	private List<OidcClaimsSource> claimsSourceList = new ArrayList<>();
+
+	public boolean allowClaimsOverride(OidcClaimsSource source) {
+		return Objects.requireNonNullElse(allowClaimsOverride, source.isAllowClaimsOverride());
+	}
+
+	public boolean allowSubjectOverride(OidcClaimsSource source) {
+		return Objects.requireNonNullElse(allowSubjectOverride, source.isAllowSubjectOverride());
+	}
 }

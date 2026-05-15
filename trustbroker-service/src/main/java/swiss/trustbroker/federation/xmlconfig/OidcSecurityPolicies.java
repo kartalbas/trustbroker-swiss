@@ -69,6 +69,17 @@ public class OidcSecurityPolicies implements Serializable {
 	private Boolean requireOpaqueAccessToken = Boolean.FALSE;
 
 	/**
+	 * Allow access_token in form body
+	 * <br/>
+	 * Default: false
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "allowFormBearerToken")
+	@Builder.Default
+	private Boolean allowFormBearerToken = Boolean.FALSE;
+
+	/**
 	 * Allow to enable Encrypted IdToken JWT Singing for Rp.
 	 * <br/>
 	 * Default: false
@@ -204,4 +215,92 @@ public class OidcSecurityPolicies implements Serializable {
 		}
 		return tokenTimeToLiveMin;
 	}
+
+	/**
+	 * Allow Token Exchange with Public Client
+	 * <br/>
+	 * Default: false
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "allowPublicClientTokenExchange")
+	@Builder.Default
+	private Boolean allowPublicClientTokenExchange = Boolean.FALSE;
+
+	/**
+	 * Restrict Token Exchange subject_token age
+	 * <br/>
+	 * Default: 60
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "subjectTokenMaxAgeSec")
+	@Builder.Default
+	private Integer subjectTokenMaxAgeSec = 60;
+
+	/**
+	 * Maximum number a subject_token can be used
+	 * <br/>
+	 * Default: 1
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "subjectTokenMaxUseCount")
+	@Builder.Default
+	private Integer subjectTokenMaxUseCount = 1;
+
+	/**
+	 * subject_token timestamp clock/transfer tolerance.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "subjectTokenNotOnOrAfterToleranceSec")
+	private Integer subjectTokenNotOnOrAfterToleranceSec;
+
+	/**
+	 * subject_token tolerance NTP drift tolerance.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "subjectTokenNotBeforeToleranceSec")
+	private Integer subjectTokenNotBeforeToleranceSec;
+
+	/**
+	 * Restrict client_assertion age
+	 * <br/>
+	 * Default: 60
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "clientAssertionMaxAgeSec")
+	@Builder.Default
+	private Integer clientAssertionMaxAgeSec = 60;
+
+	/**
+	 * Restrict client_assertion expiration maxLifeTime
+	 * <br/>
+	 * Default: 3600 (1h)
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "clientAssertionExpirationLifeTimeSec")
+	@Builder.Default
+	private Integer clientAssertionExpirationLifeTimeSec = 3600;
+
+	/**
+	 * client_assertion timestamp clock/transfer tolerance.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "clientAssertionNotOnOrAfterToleranceSec")
+	private Integer clientAssertionNotOnOrAfterToleranceSec;
+
+	/**
+	 * client_assertion tolerance NTP drift tolerance.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "clientAssertionNotBeforeToleranceSec")
+	private Integer clientAssertionNotBeforeToleranceSec;
+
 }

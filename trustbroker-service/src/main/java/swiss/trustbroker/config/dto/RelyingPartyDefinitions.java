@@ -253,7 +253,8 @@ public class RelyingPartyDefinitions {
 	// We need this special lookup to deal with Oidc.Client setups attached to multiple SetupRP (legacy copy&paste).
 	// On startup this ambiguity is actually reported as an ERROR but old habits die hard.
 	// Picking the right config is best-effort and if they copied configs are aligned it even works as expected.
-	private Pair<RelyingParty, OidcClient> getRelyingPartyOidcPair(String clientId, TrustBrokerProperties properties) {
+	public Optional<Pair<RelyingParty, OidcClient>> getRelyingPartyOidcClientByOidcClientId(
+			String clientId, TrustBrokerProperties properties) {
 		Pair<RelyingParty, OidcClient> ret = null;
 		if (oidcConfigurations != null) {
 			// CP selection applied
@@ -263,7 +264,7 @@ public class RelyingPartyDefinitions {
 					clientId, cpHint, ret != null ? ret.getLeft().getId() : null,
 					ret != null ? ret.getValue().getFederationId() : null);
 			if (ret != null) {
-				return ret;
+				return Optional.of(ret);
 			}
 			// only client_id applied
 			ret = oidcConfigurations.get(clientId);
@@ -271,17 +272,17 @@ public class RelyingPartyDefinitions {
 		log.debug("Getting oidcClient={} with cpHint=null resulted in relyingParty={} with federationId={}",
 				clientId, ret != null ? ret.getKey().getId() : null,
 				ret != null ? ret.getValue().getFederationId() : null);
-		return ret;
+		return Optional.ofNullable(ret);
 	}
 
 	public Optional<OidcClient> getOidcClientConfigById(String clientId, TrustBrokerProperties properties) {
-		var entry = getRelyingPartyOidcPair(clientId, properties);
-		return entry != null ? Optional.of(entry.getValue()) : Optional.empty();
+		var entry = getRelyingPartyOidcClientByOidcClientId(clientId, properties);
+		return entry.map(Pair::getValue);
 	}
 
 	private Optional<RelyingParty> getRelyingPartyByClientId(String clientId, TrustBrokerProperties properties) {
-		var entry = getRelyingPartyOidcPair(clientId, properties);
-		return entry != null ? Optional.of(entry.getKey()) : Optional.empty();
+		var entry = getRelyingPartyOidcClientByOidcClientId(clientId, properties);
+		return  entry.map(Pair::getKey);
 	}
 
 	// pre-condition check on accessing the OIDC part of our service
@@ -296,11 +297,11 @@ public class RelyingPartyDefinitions {
 
 	public Pair<RelyingParty, OidcClient> getRelyingPartyOidcClientByOidcClientId(String clientId, String realmName,
 			TrustBrokerProperties properties, boolean tryOnly) {
-		var entry = getRelyingPartyOidcPair(clientId, properties);
-		if (entry == null) {
+		var entry = getRelyingPartyOidcClientByOidcClientId(clientId, properties);
+		if (entry.isEmpty()) {
 			missingOidcClient(clientId, realmName, tryOnly);
 		}
-		return entry;
+		return entry.orElse(null);
 	}
 
 	private static void missingOidcClient(String clientId, String realmName, boolean tryOnly) {

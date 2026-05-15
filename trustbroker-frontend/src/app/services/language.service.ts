@@ -13,12 +13,12 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { DOCUMENT, registerLocaleData } from '@angular/common';
+import { registerLocaleData } from '@angular/common';
 import localeDe from '@angular/common/locales/de';
 import localeFr from '@angular/common/locales/fr';
 import localeIt from '@angular/common/locales/it';
 import localeEn from '@angular/common/locales/en';
-import { DestroyRef, Inject, Injectable } from '@angular/core';
+import { DOCUMENT, DestroyRef, Inject, Injectable } from '@angular/core';
 import { LangChangeEvent, TranslateService } from '@ngx-translate/core';
 import { BehaviorSubject, Connectable, Observable, connectable } from 'rxjs';
 import { map, startWith } from 'rxjs/operators';
@@ -119,7 +119,7 @@ export class LanguageService {
 	private initTranslationService(): void {
 		const defaultLanguageCode = this.getBrowserLanguageOrDefault();
 
-		this.translateService.setDefaultLang(defaultLanguageCode);
+		this.translateService.setFallbackLang(defaultLanguageCode);
 		this.translateService.addLangs(this.availableLanguages);
 
 		// NOSONAR
@@ -156,7 +156,7 @@ export class LanguageService {
 				// console.debug('[LanguageService] Selected config languageCookie.defaultValue: ', languageToSelect);
 			} else {
 				// set by initTranslationService
-				languageToSelect = this.translateService.defaultLang;
+				languageToSelect = this.translateService.getFallbackLang()!;
 				// NOSONAR
 				// console.debug('[LanguageService] Selected default language: ', languageToSelect);
 			}

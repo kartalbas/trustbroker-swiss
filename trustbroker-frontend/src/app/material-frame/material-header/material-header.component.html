@@ -12,7 +12,7 @@
  You should have received a copy of the GNU Affero General Public License along with this program.
  If not, see <https://www.gnu.org/licenses/>.
 -->
-<header class="{{ theme.name }} ob-master-layout-header-title">
+<div class="{{ theme.name }} ob-master-layout-header-title">
 	<div class="ob-master-layout-brand">
 		@if (environment) {
 			<span role="note" class="stage-banner" [style.color]="bannerColor()" [style.backgroundColor]="bannerBgColor()" (click)="hideBanner()">
@@ -125,4 +125,4 @@
 			}
 		</ul>
 	</nav>
-</header>
+</div>

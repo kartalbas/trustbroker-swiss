@@ -16,12 +16,14 @@
 package swiss.trustbroker.federation.xmlconfig;
 
 import java.io.Serializable;
+import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlAttribute;
 import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -179,6 +181,30 @@ public class ClaimsProvider implements Serializable, HrdClaimsProviderToRelyingP
 	 */
 	@XmlAttribute(name = "color")
 	private String color;
+
+	/**
+	 * Notice enabled
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "noticeEnabled")
+	@Builder.Default
+	private Boolean noticeEnabled = Boolean.TRUE;
+
+	/**
+	 * Notice max age
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "noticeMaxAgeSec")
+	@Builder.Default
+	private Integer noticeMaxAgeSec = -1;
+
+	/**
+	 * The list of ClaimsProviders name
+	 * @since 1.14.0
+	 */
+	@XmlAttribute(name = "noticeClaimsProviders")
+	@XmlJavaTypeAdapter(StringListAdapter.class)
+	private List<String> noticeClaimsProviders;
 
 	public final boolean isValidForNetwork(String network) {
 		return network == null

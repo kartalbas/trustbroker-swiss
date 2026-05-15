@@ -16,6 +16,7 @@
 package swiss.trustbroker.federation.xmlconfig;
 
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -91,6 +92,16 @@ public abstract class CounterParty implements PathReference, Serializable {
 	public abstract Saml getSaml();
 
 	/**
+	 * @return WS-Trust configuration
+	 */
+	public abstract WsTrust getWsTrust();
+
+	/**
+	 * @return SAML configuration
+	 */
+	public abstract Oidc getOidc();
+
+	/**
 	 * @return Selection of attributes.
 	 */
 	public abstract AttributesSelection getAttributesSelection();
@@ -114,21 +125,6 @@ public abstract class CounterParty implements PathReference, Serializable {
 	 */
 	public abstract Certificates getCertificates();
 
-	/**
-	 * @return true if OIDC is to be used towards the Cp/Rp
-	 *
-	 * @since 1.12.0
-	 */
-	public abstract boolean useOidc();
-
-	/**
-	 * @return RP/CP Oidc clients
-	 *
-	 * @since 1.12.0
-	 */
-	public abstract List<OidcClient> getOidcClients();
-
-
 	// XmlTransient not allowed on transient fields (the Javadoc does not say transient is considered XmlTransient):
 
 	@XmlTransient
@@ -146,6 +142,11 @@ public abstract class CounterParty implements PathReference, Serializable {
 	@XmlTransient
 	public boolean isValid() {
 		return getEnabled() != FeatureEnum.INVALID;
+	}
+
+	@XmlTransient
+	public boolean isEnabled() {
+		return getEnabled() == FeatureEnum.TRUE;
 	}
 
 	// validation
@@ -199,9 +200,12 @@ public abstract class CounterParty implements PathReference, Serializable {
 				SignatureParameters.builder();
 	}
 
-	public boolean isValidInboundBinding(SamlBinding samlBinding) {
-		var supportedSamlBindings = getSupportedSamlBindings();
-		if (CollectionUtils.isNotEmpty(supportedSamlBindings) && !supportedSamlBindings.contains(samlBinding)) {
+	public boolean isValidInboundBinding(SamlBinding samlBinding, Collection<SamlBinding> defaultBindings) {
+		Collection<SamlBinding> supportedBindings = getSupportedSamlBindings();
+		if (CollectionUtils.isEmpty(supportedBindings)) {
+			supportedBindings = defaultBindings;
+		}
+		if (CollectionUtils.isNotEmpty(supportedBindings) && !supportedBindings.contains(samlBinding)) {
 			return false;
 		}
 		var samlArtifactBinding = getSamlArtifactBinding();
@@ -213,7 +217,7 @@ public abstract class CounterParty implements PathReference, Serializable {
 
 	public boolean forwardRpProtocolBinding() {
 		var saml = getSaml();
-		return saml == null || Boolean.TRUE.equals(saml.getForwardRpProtocolBinding());
+		return saml == null || saml.isForwardRpProtocolBinding();
 	}
 
 	public QoaConfig getQoaConfig() {
@@ -280,5 +284,79 @@ public abstract class CounterParty implements PathReference, Serializable {
 			return Collections.unmodifiableList(attributesSelection.getDefinitions());
 		}
 		return Collections.emptyList();
+	}
+
+	@XmlTransient
+	public List<OidcClient> getOidcClients() {
+		var oidc = getOidc();
+		return oidc != null && oidc.getClients() != null ? oidc.getClients() : Collections.emptyList();
+	}
+
+	/**
+	 * @return true if OIDC is to be used towards RP/CP.
+	 */
+	public boolean isOidcEnabled(boolean oidcGloballyEnabled) {
+		if (!oidcGloballyEnabled) {
+			return false;
+		}
+		var oidc = getOidc();
+		return oidc != null && oidc.isEnabled();
+	}
+
+	/**
+	 * @return true if SAML is to be used towards RP/CP.
+	 * <br/>
+	 * SAML works without explicit <code>Saml</code> element - in that case it is considered  enabled
+	 * if no <code>Oidc</code> element is present.
+	 * <br/>
+	 * Thus, for using both SAML and OIDC (only makes sense for RPs), you need to add a <code>Saml</code> element.
+	 */
+	public boolean isSamlEnabled(boolean samlGloballyEnabled) {
+		if (!samlGloballyEnabled) {
+			return false;
+		}
+		var saml = getSaml();
+		if (saml == null) {
+			return !isOidcEnabled(true);
+		}
+		return saml.isEnabled();
+	}
+
+	public List<WsTrustBinding> getSupportedWsTrustBindings(CounterParty baseParty) {
+		var wsTrust = getWsTrust(baseParty);
+		return wsTrust != null ? wsTrust.getSupportedBindings() : null;
+	}
+
+	public boolean isValidInboundBinding(WsTrustBinding wsTrustBinding, Collection<WsTrustBinding> defaultBindings,
+			CounterParty baseParty) {
+		Collection<WsTrustBinding> supportedBindings = getSupportedWsTrustBindings(baseParty);
+		if (CollectionUtils.isEmpty(supportedBindings)) {
+			supportedBindings = defaultBindings;
+		}
+		return CollectionUtils.isNotEmpty(supportedBindings) && supportedBindings.contains(wsTrustBinding);
+	}
+
+	/**
+	 * @return true if Ws-Trust is to be used towards RP/CP.
+	 */
+	public boolean isWsTrustEnabled(boolean wsTrustGloballyEnabled, CounterParty baseParty) {
+		if (!wsTrustGloballyEnabled) {
+			return false;
+		}
+		var wsTrust = getWsTrust(baseParty);
+		return wsTrust != null && wsTrust.isEnabled();
+	}
+
+	private WsTrust getWsTrust(CounterParty baseParty) {
+		var wsTrust = getWsTrust();
+		if (wsTrust == null && baseParty != null && baseParty.isWsTrustCounterPartyDefault()) {
+			wsTrust = baseParty.getWsTrust();
+		}
+		return wsTrust;
+	}
+
+	private boolean isWsTrustCounterPartyDefault() {
+		var wsTrust = getWsTrust();
+		return wsTrust != null && wsTrust.isCounterPartyDefault();
 	}
 }

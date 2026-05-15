@@ -44,6 +44,7 @@ import swiss.trustbroker.oidc.session.HttpExchangeSupport;
 import swiss.trustbroker.script.service.ScriptService;
 import swiss.trustbroker.util.ApiSupport;
 import swiss.trustbroker.util.CorsSupport;
+import swiss.trustbroker.util.HeaderBuilder;
 import swiss.trustbroker.util.WebSupport;
 
 /**
@@ -90,7 +91,7 @@ public class OidcTxFilter implements Filter {
 
 			// stateless spring-security redirect handling
 			if (CorsUtils.isPreFlightRequest(httpRequest)) {
-				log.debug("HTTP security headers handled for OPTIONS/PREFLIGHT on path path={}", path);
+				log.debug("HTTP security headers handled for OPTIONS/PREFLIGHT on path={}", path);
 			}
 			// stateless assert of pre-emptive output stream flushing
 			else if (response.isCommitted()) {
@@ -135,6 +136,17 @@ public class OidcTxFilter implements Filter {
 				.referrerPolicy()
 				.robotsTag();
 
+		// depending on config, allow access from a domain on Internet to XTB running on private network IP
+		// e.g. direct access to XTB from Intranet, bypassing proxy used to access XTB from Internet
+		if (CorsUtils.isPreFlightRequest(httpRequest) &&
+				HeaderBuilder.ACCESS_CONTROL_PRIVATE_NETWORK.equals(
+						httpRequest.getHeader(HeaderBuilder.ACCESS_CONTROL_REQUEST_PRIVATE_NETWORK)) &&
+				properties.getCors().getAllowPrivateNetworkAccess().allow(
+						WebSupport.isClientOnIntranet(httpRequest, properties.getNetwork()))) {
+			log.debug("Private network access allowed with AllowPrivateNetworkAccess policy for OPTIONS/PREFLIGHT on path={}", path);
+			wrappedResponse.headerBuilder()
+					.allowPrivateNetwork();
+		}
 		// validate if we know this client or at least the called URL seems unproblematic
 		// Web resources (before SAML as this is within ApiPath)
 		if (ApiSupport.isWebResourcePath(path)) {

@@ -20,6 +20,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.shaded.gson.JsonArray;
 import com.nimbusds.jose.shaded.gson.JsonElement;
 import com.nimbusds.jose.shaded.gson.JsonObject;
@@ -160,6 +162,19 @@ public class JsonUtil {
 			return expectedClass.cast(element);
 		}
 		return null;
+	}
+
+	public static String serializeToJson(Object dto) {
+		return serializeToJson(dto, new ObjectMapper());
+	}
+
+	public static String serializeToJson(Object dto, ObjectMapper objectMapper) {
+		try {
+			return objectMapper.writeValueAsString(dto);
+		}
+		catch (JsonProcessingException ex) {
+			throw new TechnicalException("Could not serialize JSON", ex);
+		}
 	}
 
 }

@@ -18,6 +18,7 @@
   var awaitCompletions = $XTBSloWaitForCount;
   var startTimeMillis = Date.now();
   var timeoutId;
+  var pendingNotifications = [];
 
   function submitLogoutResponse() {
     var form = document.forms['saml.result'];
@@ -48,12 +49,39 @@
   }
 
   function completeLogoutResponse() {
-    if (allCompleted()) {
+	if (hasPendingNotifications()) {
+		#if($XTBSloConsoleDebug)console.debug('Triggering next pending notification out of:', pendingNotifications.length);#end
+		setupNextNotification();
+	}
+    else if (allCompleted()) {
       resetTimeoutHandler();
       submitLogoutResponse();
       return true;
     }
     return false;
+  }
+
+  function hasPendingNotifications() {
+	  return pendingNotifications.length > 0;
+  }
+
+  function setupNextNotification() {
+	  const notification = pendingNotifications.shift();
+	  if (!notification) {
+		  #if($XTBSloConsoleDebug)console.debug('No more pending notifications');#end
+		  return;
+	  }
+	  const elt = document.getElementById('slo');
+	  var subElt = document.createElement('div');
+	  subElt.innerHTML = notification.element;
+	  #if($XTBSloConsoleDebug)console.debug('Adding DOM to element "slo" of type:', typeof elt, notification.element);#end
+	  elt.appendChild(subElt);
+	  if (!notification.hook) {
+		  #if($XTBSloConsoleDebug)console.debug('No hook');#end
+		  return;
+	  }
+	  #if($XTBSloConsoleDebug)console.debug('Executing hook', notification.hook);#end
+	  notification.hook();
   }
 
   function setupTimeoutHandler() {
@@ -85,13 +113,13 @@
       #if ($result.Slo.Mode.isWaitForResponse())
         ## if we get any HTTP response and the document is rendered, the logout is considered successful
         #set($completedHook = "handleCompletedLogout(\'${description}\', \'Received response\')")
-        #set($autoComplete = "")
+        #set($autoComplete = "undefined")
       #else
         ## just wait a little to give the browser some time to send the request
         ## (a very fast response that could be quicker than the wait, but the wait is only a few hundred milliseconds)
         #set($completedHook = "")
         #set($autoComplete =
-          "setTimeout(function() { handleCompletedLogout('${description}', 'Reached timeout'); }, $XTBSloMinWaitMillis);")
+          "function () { setTimeout(function() { handleCompletedLogout('${description}', 'Reached timeout'); },$XTBSloMinWaitMillis); }")
       #end
       #if ($result.Slo.Protocol == 'SAML2')
         ## form is embedded in iframe srcdoc hence the HTML encoded quotes
@@ -106,9 +134,12 @@
 		#if($result.SamlRedirectSignatureAlgorithm)
 		  #set($form = "${form}<input type=&quot;hidden&quot; name=&quot;SigAlg&quot; value=&quot;${result.SamlRedirectSignatureAlgorithm}&quot;/>")
 	    #end
-		 #if($result.SamlRedirectSignature)
+		#if($result.SamlRedirectSignature)
 		  #set($form = "${form}<input type=&quot;hidden&quot; name=&quot;Signature&quot; value=&quot;${result.SamlRedirectSignature}&quot;/>")
-		 #end
+		#end
+		#foreach($field in ${result.queryParameters})
+		  #set($form = "${form}<input type=&quot;hidden&quot; name=&quot;${field.name}&quot; value=&quot;$!{field.value}&quot;/>")
+		#end
         #set($form = "${form}</form>")
         ## first on load based on srcdoc submits the form, second one fails because of cross origin and does the completion hook
         #set($completedHook =
@@ -125,14 +156,22 @@
           ## HTTP and OIDC Front-Channel just use a GET URL
           #set($code = "<iframe src=""${result.EncodedUrl}"" onLoad=""${completedHook}"" style=""visibility:hidden;""></iframe>")
       #end
-      var elt = document.getElementById('slo');
-      #if($XTBSloConsoleDebug)console.debug('Adding DOM to element "slo": $code', typeof elt);#end
-      var subElt = document.createElement('div');
-      subElt.innerHTML = '$code';
-      elt.appendChild(subElt);
-      $autoComplete
+	  #if($XTBSloConsoleDebug)console.debug('Adding pending notification');#end
+	  pendingNotifications.push({'element': '$code', 'hook': $autoComplete});
     #end
 
+	## for serialized notifications set set up the next one after completion of the previous
+    if ($XTBSloSerializeNotifications) {
+		#if($XTBSloConsoleDebug)console.debug('Triggering pending notifications sequentially:', pendingNotifications.length);#end
+		setupNextNotification();
+	}
+	## for parallel notifications create everything up-front
+	else {
+		#if($XTBSloConsoleDebug)console.debug('Triggering pending notifications in parallel:', pendingNotifications.length);#end
+		while (hasPendingNotifications()) {
+			setupNextNotification();
+		}
+	}
     setupTimeoutHandler();
   }
 

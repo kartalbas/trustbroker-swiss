@@ -15,7 +15,6 @@
 
 package swiss.trustbroker.federation.xmlconfig;
 
-import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nonnull;
 
@@ -194,6 +193,14 @@ public class ClaimsParty extends CounterParty {
 	@XmlElement(name = "Saml")
 	private Saml saml;
 
+	/**
+	 * WS-Trust protocol configuration for this CP.
+	 *
+	 * @since 1.14.0
+	 */
+	@XmlElement(name = "WsTrust")
+	private WsTrust wsTrust;
+
 	// processing model
 
 	/**
@@ -300,20 +307,6 @@ public class ClaimsParty extends CounterParty {
 		return ProvisioningMode.FALSE;
 	}
 
-	/**
-	 * @return true if OIDC is to be used towards CP
-	 */
-	public boolean useOidc() {
-		return oidc != null;
-	}
-
-	/**
-	 * @return true if SAML is to be used towards CP
-	 */
-	public boolean useSaml() {
-		return !useOidc(); // SAML is the default
-	}
-
 	@XmlTransient
 	public OidcClient getSingleOidcClient() {
 		if (oidc == null) {
@@ -326,9 +319,4 @@ public class ClaimsParty extends CounterParty {
 		}
 		return oidc.getClients().get(0);
 	}
-
-	public List<OidcClient> getOidcClients() {
-		return oidc != null && oidc.getClients() != null ? oidc.getClients() : Collections.emptyList();
-	}
-
 }

@@ -235,7 +235,7 @@ class SsoServiceTest {
 
 	private static final String ACS_URL_ENCODED = "https&#x3a;&#x2f;&#x2f;localhost&#x2f;acs";
 
-	private static final String PERIMERTER_URL = "https://login.trustbroker.swiss/auth";
+	private static final String PERIMETER_URL = "https://login.trustbroker.swiss/auth";
 
 	private static final String MISMATCH_ACS_URL = "https://other.localdomain/acs";
 
@@ -2560,6 +2560,7 @@ class SsoServiceTest {
 		assertThat(result.keySet(), contains(sloResponse));
 		var expectedNotification = new SloNotification(sloResponse);
 		expectedNotification.setEncodedUrl(SLO_URL_ENCODED);
+		expectedNotification.setEncodedQueryParameters(Collections.emptyList());
 		assertThat(result.get(sloResponse), is(expectedNotification));
 	}
 
@@ -2733,7 +2734,7 @@ class SsoServiceTest {
 	@ParameterizedTest
 	@MethodSource
 	void testCalculateCookieSameSiteFlag(SsoGroup ssoGroup, String ssoGroupName, SsoState ssoState, String expected) {
-		doReturn(PERIMERTER_URL).when(trustBrokerProperties).getPerimeterUrl();
+		doReturn(PERIMETER_URL).when(trustBrokerProperties).getPerimeterUrl();
 		doReturn(Optional.ofNullable(ssoGroup)).when(relyingPartySetupService).getSsoGroupConfig(ssoGroupName, true);
 		var result = ssoService.calculateCookieSameSiteFlag(ssoState);
 		assertThat(result, is(expected));
@@ -2849,6 +2850,7 @@ class SsoServiceTest {
 		var result = ssoService.buildSloResponseParameters(rp, DESTINATION, notifications, nameId, OIDC_SESSION_ID, redirectUrl);
 
 		assertThat(result.useHttpGet(), is(true));
+		assertThat(result.redirectUrl(), is(nullValue()));
 		assertThat(result.velocityParameters(), is(not(nullValue())));
 		assertThat(result.velocityParameters().get(VelocityUtil.VELOCITY_PARAM_XTB_HTTP_METHOD), is(HttpMethod.GET.name()));
 		assertThat(result.velocityParameters().get(VelocityUtil.VELOCITY_PARAM_ACTION), is(redirectUrl));

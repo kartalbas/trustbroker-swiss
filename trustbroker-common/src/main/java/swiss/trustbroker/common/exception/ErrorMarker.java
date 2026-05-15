@@ -27,7 +27,7 @@ import org.slf4j.event.Level;
 @Getter
 public enum ErrorMarker {
 	DEFAULT(Level.ERROR),
-	STATE_NOT_FOUND(Level.WARN),
+	STATE_NOT_FOUND(Level.WARN), // usually expired session
 	CLIENT_DISCONNECT(Level.WARN); // Broken pipe, Connection reset
 
 	private final Level level;

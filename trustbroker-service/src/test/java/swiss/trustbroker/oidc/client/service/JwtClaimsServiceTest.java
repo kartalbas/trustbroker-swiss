@@ -57,7 +57,7 @@ class JwtClaimsServiceTest {
 		// return unmodified list
 		doAnswer(invocation -> invocation.getArgument(1)).when(claimsMapperService).applyMappers(any(), any(), any());
 
-		var definitions = jwtClaimsService.mapClaimsToAttributes(jwtClaimsSet, cp);
+		var definitions = jwtClaimsService.mapAndValidateClaimsToAttributes(jwtClaimsSet.getClaims(), cp);
 
 		assertThat(definitions.size(), is(3));
 		assertThat(definitions.get(new Definition(OidcMockTestData.CLAIM_GIVEN_NAME)),

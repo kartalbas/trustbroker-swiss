@@ -78,8 +78,7 @@ public class RelyingPartySetupService {
 			// References are validated as part of the configuration startup, so check the startup logs.
 			// Also note that in the single CP cases the mapping XML might also have a missing entry.
 			throw new RequestDeniedException(String.format(
-					"Check SetupRP.xml: There is no RelyingParty for RP issuer='%s' or referrer='%s' in rpIds='%s'",
-					issuerId, refererUrl, getRelyingPartyIds()));
+					"Check SetupRP.xml: There is no RelyingParty for RP issuer='%s' or referrer='%s'", issuerId, refererUrl));
 		}
 		log.debug("Found RP by issuerId={} and referrerUrl={} relyingParty={}", issuerId, refererUrl,
 				relyingParty.isPresent() ? relyingParty.get().getId() : null);
@@ -290,31 +289,6 @@ public class RelyingPartySetupService {
 		).toList();
 	}
 
-	// debug only
-	private String getRelyingPartyIds() {
-		var sb = new StringBuilder("[");
-		relyingPartiesMapping.getRelyingPartySetup().getRelyingParties().forEach(
-				claimRuleDef -> {
-					sb.append(claimRuleDef.getId());
-					sb.append(",");
-				}
-		);
-		sb.append("]");
-		return sb.toString().replace(",]", "]");
-	}
-
-	private String getCpIds() {
-		var sb = new StringBuilder("[");
-		relyingPartiesMapping.getClaimsProviderSetup().getClaimsParties().forEach(
-				claimsParty -> {
-					sb.append(claimsParty.getId());
-					sb.append(",");
-				}
-		);
-		sb.append("]");
-		return sb.toString().replace(",]", "]");
-	}
-
 	public ClaimsParty getClaimsProviderSetupByIssuerId(String issuerId, String refererUrl) {
 		return getClaimsProviderSetupByIssuerId(issuerId, refererUrl, false);
 	}
@@ -334,8 +308,7 @@ public class RelyingPartySetupService {
 		}
 		if (claimsParty.isEmpty() && !tryOnly) {
 			var msg = String.format(
-					"Check SetupCP.xml: There is no ClaimsParty for cpId='%s' or referrer='%s' in cpIds='%s'",
-					issuerId, refererUrl, getCpIds());
+					"Check SetupCP.xml: There is no ClaimsParty for cpId='%s' or referrer='%s'", issuerId, refererUrl);
 			throw new RequestDeniedException(msg);
 		}
 		log.debug("Found CP by issuerId={} and referrerUrl={}", issuerId, refererUrl);

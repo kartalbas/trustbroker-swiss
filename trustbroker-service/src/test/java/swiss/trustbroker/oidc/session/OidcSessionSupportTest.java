@@ -239,15 +239,20 @@ class OidcSessionSupportTest {
 	@ParameterizedTest
 	@MethodSource
 	void testGetCookieSameSite(boolean withClient, String policySameSite, String redirectUri,
-			String logoutRedirectUri, String perimeterUrl, String propertySameSite, String expected) {
+			String logoutRedirectUri, String perimeterUrl, String propertySameSite, String secFetchMode, String expected) {
 		var client = withClient ? OidcClient.builder().id("id").build() : null;
 		if (client != null) {
 			client.getOidcSecurityPolicies().setSessionCookieSameSite(policySameSite);
 		}
 		var request = new MockHttpServletRequest();
-		request.setSecure(redirectUri != null && redirectUri.startsWith("https"));
+		var secure = (redirectUri != null && redirectUri.startsWith("https"))
+						|| (logoutRedirectUri != null && logoutRedirectUri.startsWith("https"));
+		request.setSecure(secure);
 		request.setParameter(OidcUtil.REDIRECT_URI, redirectUri);
 		request.setParameter(OidcUtil.LOGOUT_REDIRECT_URI, logoutRedirectUri);
+		if (secFetchMode != null) {
+			request.addHeader(WebUtil.HTTP_HEADER_SEC_FETCH_SITE, secFetchMode);
+		}
 		var properties = new TrustBrokerProperties();
 		properties.setPerimeterUrl(perimeterUrl);
 		properties.setCookieSameSite(propertySameSite);
@@ -257,18 +262,23 @@ class OidcSessionSupportTest {
 
 	static Object[][] testGetCookieSameSite() {
 		return new Object[][] {
-				{ false, null, null, null, null, null, null },
-				{ false, null, null, null, null, WebUtil.COOKIE_SAME_SITE_LAX,
+				{ false, null, null, null, null, null, null, null },
+				{ false, null, null, null, null, WebUtil.COOKIE_SAME_SITE_LAX, null,
 						WebUtil.COOKIE_SAME_SITE_LAX }, // fallback propertySameSite
-				{ false, null, "https://sub.trustbroker.swiss", null, "https://auth.trustbroker.swiss", null,
+				{ false, null, "https://sub.trustbroker.swiss", null, "https://auth.trustbroker.swiss", null, null,
 						WebUtil.COOKIE_SAME_SITE_STRICT }, // same site redirectUrl
-				{ true, null, "https://localhost", "https://sub.trustbroker.swiss", "https://auth.trustbroker.swiss", null,
+				{ true, null, "https://localhost", "https://sub.trustbroker.swiss", "https://auth.trustbroker.swiss", null, null,
 						WebUtil.COOKIE_SAME_SITE_STRICT }, // same site logoutRedirectUrl
 				{ true, null, null, "https://sub.trustbroker.swiss", "https://auth.trustbroker.swiss",
-						WebUtil.COOKIE_SAME_SITE_DYNAMIC, WebUtil.COOKIE_SAME_SITE_STRICT }, // same site logoutRedirectUrl
-				{ false, null, "https://localhost", null, "https://auth.trustbroker.swiss", WebUtil.COOKIE_SAME_SITE_LAX,
+						WebUtil.COOKIE_SAME_SITE_DYNAMIC, null, WebUtil.COOKIE_SAME_SITE_STRICT }, // same site logoutRedirectUrl
+				{ true, null, null, "https://sub.trustbroker.swiss", "https://auth.trustbroker.swiss",
+						WebUtil.COOKIE_SAME_SITE_DYNAMIC, WebUtil.SEC_FETCH_SITE_CROSS_SITE,
+						WebUtil.COOKIE_SAME_SITE_NONE }, // cross-site header
+				{ true, null, null, "http://localhost", "http://auth.trustbroker.swiss",
+						WebUtil.COOKIE_SAME_SITE_DYNAMIC, null, null }, // cross-site, but insecure
+				{ false, null, "https://localhost", null, "https://auth.trustbroker.swiss", WebUtil.COOKIE_SAME_SITE_LAX, null,
 						WebUtil.COOKIE_SAME_SITE_NONE }, // cross site redirectUrl
-				{ true, WebUtil.COOKIE_SAME_SITE_LAX, "https://localhost", null, "https://localhost", null,
+				{ true, WebUtil.COOKIE_SAME_SITE_LAX, "https://localhost", null, "https://localhost", null, null,
 						WebUtil.COOKIE_SAME_SITE_LAX }, // client policySameSite
 		};
 	}

@@ -32,7 +32,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.jwk.JWK;
 import lombok.extern.slf4j.Slf4j;
 import net.shibboleth.shared.resolver.CriteriaSet;
 import net.shibboleth.shared.resolver.Criterion;
@@ -53,6 +56,7 @@ import org.opensaml.core.criterion.EntityIdCriterion;
 import org.opensaml.security.credential.Credential;
 import org.opensaml.security.credential.impl.KeyStoreCredentialResolver;
 import org.opensaml.security.x509.BasicX509Credential;
+import org.opensaml.security.x509.X509Credential;
 import swiss.trustbroker.common.config.KeystoreProperties;
 import swiss.trustbroker.common.exception.TechnicalException;
 
@@ -401,7 +405,12 @@ public class CredentialReader {
 			criteriaSet.add(criterion);
 
 			credential = resolver.resolveSingle(criteriaSet);
-			log.debug("{} certificate successfully read", keystorePath);
+			log.debug("Read certificate={} with alias={} resulted in credential={}", keystorePath, alias, credential);
+			if (credential == null) {
+				throw new TechnicalException(String.format(
+						"Reading PKCS12/JKS keystore from keystorePath=%s does not contain alias=%s (HINT: Check configuration)",
+						keystorePath, alias));
+			}
 			return credential;
 		}
 		catch (TechnicalException e) {
@@ -516,4 +525,26 @@ public class CredentialReader {
 		}
 	}
 
+	public static List<JWK> loadJwks(String certPath, String certType, String password, String alias) {
+		List<Credential> credentials = readTrustCredentials(certPath, certType, password, alias);
+		if (credentials.isEmpty()) {
+			throw new TechnicalException(String.format("No certificate found in certPath=%s", certPath));
+		}
+		List<JWK> jwks = new ArrayList<>();
+		for (Credential credential : credentials) {
+			var certificate = ((X509Credential) credential).getEntityCertificate();
+			try {
+				var jwk = JWK.parse(certificate);
+				jwks.add(jwk);
+			}
+			catch (JOSEException e) {
+				throw new TechnicalException(String.format("Parsing certificate=%s failed", certPath), e);
+			}
+		}
+		return jwks;
+	}
+
+	public static Optional<JWK> getJwk(List<JWK> cpJwks) {
+		return Optional.of(cpJwks.get(0));
+	}
 }

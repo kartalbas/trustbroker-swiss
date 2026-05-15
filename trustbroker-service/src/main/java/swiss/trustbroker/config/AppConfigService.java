@@ -31,6 +31,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.opensaml.security.credential.Credential;
 import org.springframework.cloud.endpoint.event.RefreshEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.stereotype.Service;
 import swiss.trustbroker.api.idm.service.IdmQueryService;
 import swiss.trustbroker.common.config.KeystoreProperties;
@@ -67,6 +68,8 @@ public class AppConfigService {
 			GitService.CONFIGURATION_PATH_SUB_DIR_LATEST + RelyingPartySetupUtil.DEFINITION_PATH;
 
 	private final ApplicationEventPublisher eventPublisher;
+
+	private final ConfigurableEnvironment environment;
 
 	private final TrustBrokerProperties trustBrokerProperties;
 
@@ -172,10 +175,10 @@ public class AppConfigService {
 				newConfigPath + claimsDefinitionMapping);
 
 		var claimsProviderSetup = ClaimsProviderUtil.loadClaimsProviderSetup(
-				newConfigPath + claimsProviderSetupPath);
+				newConfigPath + claimsProviderSetupPath, environment);
 
 		var relyingPartySetup = ClaimsProviderUtil.loadRelyingPartySetup(
-				newConfigPath + relyingPartySetupPath);
+				newConfigPath + relyingPartySetupPath, environment);
 
 		var ssoGroupSetup = ClaimsProviderUtil.loadSsoGroups(newConfigPath + ssoGroupSetupPath);
 
@@ -192,7 +195,7 @@ public class AppConfigService {
 		var claimRules = relyingPartySetup.getRelyingParties();
 		RelyingPartySetupUtil.loadRelyingParty(claimRules, trustBrokerProperties.getConfigurationPath()
 						+ CONFIG_CACHE_DEFINITION_SUBPATH, newConfigPath, trustBrokerProperties, idmQueryServices,
-				scriptService, claimsProviderSetup, claimsProviderDefinitions);
+				scriptService, claimsProviderSetup, claimsProviderDefinitions, environment);
 		checkAndLoadRelyingPartyCertificates(relyingPartySetup);
 		checkRpSsoIntegrity(relyingPartySetup, ssoGroupSetup);
 		filterInvalidRelyingParties(relyingPartySetup);
@@ -217,19 +220,6 @@ public class AppConfigService {
 				}
 			}
 		}
-		for (var claimParty : claimsProviderSetup.getClaimsParties()) {
-			for (var oidcClient : claimParty.getOidcClients()) {
-				// INFO logs and caches spring registered OIDC clients
-				try {
-					clientConfigInMemoryRepository.findByClientId(oidcClient.getId());
-					oidcClientCount += 1;
-				}
-				catch (RuntimeException ex) {
-					log.error("Invalid CP={} oidcClientId={}: {}", claimParty.getId(), oidcClient.getId(), ex);
-					claimParty.invalidate(ex);
-				}
-			}
-		}
 		log.info("OIDC provider registry update done for oidcClientCount={} items", oidcClientCount);
 	}
 
@@ -251,6 +241,9 @@ public class AppConfigService {
 	}
 
 	private void checkAndLoadCpCertificates(ClaimsParty claimsParty) {
+		if (claimsParty.getOidc() != null) {
+			credentialService.checkAndLoadJWKs(claimsParty.getId(), claimsParty.getSubPath(), claimsParty.getOidc().getClients());
+		}
 		if (claimsParty.getCertificates() == null) {
 			return;
 		}
@@ -291,7 +284,6 @@ public class AppConfigService {
 		if (claimsParty.getOidc() != null) {
 			oidcEncryptionKeystoreService.loadClientsDecryptionKeystore(claimsParty.getId(), claimsParty.getSubPath(), claimsParty.getOidc().getClients());
 		}
-
 	}
 
 	public void checkAndLoadRelyingPartyCertificates(RelyingPartySetup relyingParties) {
@@ -327,14 +319,15 @@ public class AppConfigService {
 
 		var credentials = credentialService.checkAndLoadTrustCredential(rpCerts.getSignerTruststore(), relyingParty.getId(),
 				relyingParty.getSubPath());
-		if (!relyingParty.getOidcClients().isEmpty()) {
+		if (relyingParty.isOidcEnabled(trustBrokerProperties.getOidc().isEnabled())) {
 			var selfSigner = trustBrokerProperties.getSigner();
 			var selfCert = geGlobalCert(selfSigner, "trustbroker.config.signer");
 			credentials.addAll(selfCert);
 			log.debug("rpId={} has OIDC configured, add own signer={} to truststore", relyingParty.getId(),
 					selfSigner.getSignerCert());
 		}
-		else if (trustBrokerProperties.getGlobalRequestTrust() != null) {
+		if (relyingParty.isSamlEnabled(trustBrokerProperties.getSaml().isEnabled())
+				&& trustBrokerProperties.getGlobalRequestTrust() != null) {
 			var globalRequestTrust = trustBrokerProperties.getGlobalRequestTrust();
 			var globalRequestTrustCert = geGlobalCert(globalRequestTrust, "trustbroker.config.globalRequestTrust");
 			credentials.addAll(globalRequestTrustCert);

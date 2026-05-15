@@ -1013,16 +1013,12 @@ public class OidcSessionSupport {
 		}
 		if (WebUtil.isSameSiteDynamic(sameSite)) {
 			var redirectUri = getRedirectUri(request);
-			// Dynamic mapped to STRICT when redirect_uri in message matches perimeterUrl from config, otherwise use global default
-			sameSite = redirectUri == null ?
-					trustBrokerProperties.getCookieSameSite() :
-					WebUtil.getCookieSameSite(trustBrokerProperties.getPerimeterUrl(), redirectUri);
-			// SameSite=None not allowed on insecure transports
-			if (!request.isSecure() && WebUtil.COOKIE_SAME_SITE_NONE.equalsIgnoreCase(sameSite)) {
-				log.debug("Discarding SameSite=None on insecure transport");
-				sameSite = null;
-			}
-		} else if (client.isPresent()) { // must be present
+			var isCrossSite = WebUtil.isCrossSiteRequest(request);
+			var insecureRequest = Optional.of(!request.isSecure());
+			sameSite = WebUtil.getCookieSameSite(trustBrokerProperties.getCookieSameSite(),
+							trustBrokerProperties.getPerimeterUrl(), redirectUri, isCrossSite, insecureRequest);
+		}
+		else if (client.isPresent()) { // must be present
 			log.debug("OidcClient={} requires cookie sameSite={}", client.get().getId(), sameSite);
 		}
 		return sameSite;
