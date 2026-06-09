@@ -2,14 +2,25 @@
 
 ## 1.15.0 (2026-08)
 
+### Dependency upgrades
+
+- Backend:
+    - Spring Boot 4
+
 ### Improvements
 - SAML:
   - Validation improvements.
+  - Redirects to SAML endpoints in CORS context are now rendered as self-submitting HTML form.
 - Security:
   - Disable API controllers of unused features. SSO, profile selection, announcements, monitoring need to be enabled explicitly if used.
   - Server-side rendering of skinny HRD.
+  - Restrict frontend APIs to own referer. Test automation calls to the APIs will need to add a corresponding referer header.
 - Config:
   - Improved profile merging for attributes with defaults.
+
+### Bugfixes
+- Configuration:
+  - Send configured CP orders to frontend also when HRD_BANNERS feature is not enabled.
 
 # Released Versions
 
@@ -45,7 +56,7 @@
 
 ### Improvements
 - OIDC:
-  - Improvements for grant type token exchange.
+  - Improvements in support for grant type token exchange (disabled by default). This feature is still in beta stage until further notice in the release notes. Please do not enable in production.
 - LDAP:
   - Organizational profile selection.
   - Switch to osixia openldap image.
@@ -62,11 +73,11 @@
   - Hardening of protocol endpoints: WS-Trust and WS-FED are now disabled by default and need to be enabled explicitly.
 
 ### Bugfixes
--OIDC:
- - Fix handling of missing userinfo endpoint in CP.
- - Fix warnings in logs on configuration reload.
- - Allow token introspection between clients in the same SetupRP.
- - Claims mapper TIME_EPOCH now idempotent.
+- OIDC:
+  - Fix handling of missing userinfo endpoint in CP.
+  - Fix warnings in logs on configuration reload.
+  - Allow token introspection between clients in the same SetupRP.
+  - Claims mapper TIME_EPOCH now idempotent.
 - SAML:
   - Case normalization for redirect binding signature check.
 - WSTrust:
@@ -89,7 +100,7 @@
 ## 1.13.0.20260316T084959Z
 
 ### Improvements
-- UI: 
+- UI:
   - Skinny HRD files are now blocked if not enabled. Dropped old variants. Skinny HRD is disabled by default now.
 
 ### Bugfixes
@@ -204,7 +215,7 @@
   - github.node-gradle.node 7.1.0
   - google.cloud.tools.jib 3.4.5
 - Frontend - major version upgrades:
-  - Angular 19.2.4 
+  - Angular 19.2.4
   - Oblique 13.3.3
   - CSS files in config may need to be adapted due to this!
 
@@ -214,7 +225,7 @@
 
 ### Improvements
 - OIDC:
-  - Cache RP side OIDC configurations used for JWE (JSON Web Encryption) 
+  - Cache RP side OIDC configurations used for JWE (JSON Web Encryption)
   - Add encryption algorithms and methods to metadata
 - SAML:
   - Allow validation of origin/referer HTTP headers against ACWhitelist with validateHttpHeaders=true for AuthnRequests
@@ -229,7 +240,7 @@
 - IDM:
   - LDAP filtering improvements supporting '*' as wildcard and 'IDM:query_name:definition_name'
 - QoA:
-  - Add specifig NoAuthnContext error screen for QoA issues    
+  - Add specifig NoAuthnContext error screen for QoA issues
 - UI:
   - Render header buttons in the configured order to avoid use of tabIndex
 
@@ -259,11 +270,11 @@
   - Spring Boot 3.5.3
   - Spring Cloud 2025.0.0
   - JGit 7.3.0.202506031305-r
-  - commons-beanutils 1.11.0 
+  - commons-beanutils 1.11.0
 
 ### Features
 - OIDC:
-  - Support for JWE (JSON Web Encryption) 
+  - Support for JWE (JSON Web Encryption)
   - Fetching of OIDC client metadata for encryption key discovery
 - WSTrust:
   - Support for RENEW request if enabled (not yet fully functional in this release)
@@ -298,7 +309,7 @@
    - SessionNotOnOrAfter now considers refresh_token activity on the SSO session
    - No longer allow SSO if the AuthnRequest contains an invalid signature
  - QoA:
-   - QoA enforcement now blocks properly in all cases also on RP side 
+   - QoA enforcement now blocks properly in all cases also on RP side
 
 ## 1.10.0.20250707T135922Z
 
@@ -426,7 +437,7 @@
 - Script hook _BeforeResponse_ added to allow scripts on the complete, yet unfiltered output data.
 - new _OpsAudit_ logging allows controlling what data is audited.
 - Dependencies updated.
-    
+
 ### Fixes
 
 - OIDC setup without client secret addressed with a private _authorization_code_ lead to HTTP 302 instead of 401.
@@ -440,7 +451,7 @@
 - Error page is now sent as JSON if any of the HTTP headers configured in _trustbroker.config.oidc.jsonErrorPageHeaders_ matches.
 - Error logging cleanup.
 - _RPRequest_ (with _rpIssuer_, _applicationName_, _contextClasses_, _referer_) object is now available to script hooks in the response phase.
-    
+
 ### Fixes
 
 - Disable Spring in-memory session storage that led to a memory leak causing out of memory conditions under load.
@@ -465,10 +476,10 @@
   - New attribute mapper for e-mail with lower case transformation and de-duplication.
   - Fragment _redirect_uri_ handling supports arbitrary non-RFC3986 compliant query and fragment parameters now (caused breaking applications using deep-links with parameters).
   - SSO cookie also set on OIDC domain for improved global logout handling.
-- Tracing: 
+- Tracing:
   - OpenTelemetry-aligned conversation ID support added.
   - Additional HTTP protocol detail logging can be enabled if a conversation ID is defined.
-- Markup/markdown support for translations improved to allow sanitized HTML and markdown links (except in top level titles, button names, labels). 
+- Markup/markdown support for translations improved to allow sanitized HTML and markdown links (except in top level titles, button names, labels).
 - Upgrade to latest JDK/17, Spring Boot, Oblique.
 
 ### Fixes
